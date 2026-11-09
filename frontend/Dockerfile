@@ -20,7 +20,7 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build --workspace frontend
 
 # Unprivileged nginx: runs as a non-root user and listens on 8080.
-FROM nginxinc/nginx-unprivileged:1.29-alpine AS runtime
+FROM nginxinc/nginx-unprivileged:1.31-alpine AS runtime
 COPY frontend/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY frontend/nginx/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY --from=build /app/frontend/dist /usr/share/nginx/html
