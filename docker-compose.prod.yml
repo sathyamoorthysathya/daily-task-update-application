@@ -1,0 +1,109 @@
+# Production stack: PostgreSQL, a one-shot migration job, the API and the web server.
+#
+#   cp .env.production.example .env.production   # then fill in real secrets
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# See docs/DEPLOYMENT.md for TLS, backups, upgrades and operations.
+name: daily-task-update-prod
+
+x-hardening: &hardening
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '5'
+
+services:
+  postgres:
+    <<: *hardening
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+    # Not published: only the API and the migration job reach the database.
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    stop_grace_period: 60s
+    networks: [backend]
+
+  # Applies pending Prisma migrations, then exits. The API starts only if it succeeded.
+  migrate:
+    image: ${IMAGE_PREFIX:-dtu}-migrate:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: migrate
+    restart: 'no'
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
+
+  api:
+    <<: *hardening
+    image: ${IMAGE_PREFIX:-dtu}-api:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runtime
+    env_file: ${ENV_FILE:-.env.production}
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      WORKBOOK_STORAGE_DIR: /data/workbooks
+    # Workbook .xlsx files: must persist and be backed up together with the database.
+    volumes:
+      - workbook-data:/data/workbooks
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    # tini as PID 1 forwards SIGTERM; the API stops accepting requests, finishes Excel jobs
+    # in progress and closes the database pool within the grace period.
+    init: true
+    stop_grace_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend, frontend]
+
+  web:
+    <<: *hardening
+    image: ${IMAGE_PREFIX:-dtu}-web:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    environment:
+      API_UPSTREAM: http://api:3000
+    ports:
+      # Put a TLS-terminating proxy / load balancer in front (see docs/DEPLOYMENT.md).
+      - '${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:8080'
+    cap_drop: [ALL]
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [frontend]
+
+networks:
+  backend:
+  frontend:
+
+volumes:
+  postgres-data:
+  workbook-data:

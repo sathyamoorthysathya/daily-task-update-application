@@ -1,0 +1,94 @@
+# Run the whole application locally with Docker: PostgreSQL, migrations, API and web client.
+#
+#   docker compose up -d --build --wait      (or: npm run docker:up)   ->  http://localhost:8080
+#   docker compose down                      (or: npm run docker:down)
+#
+# Only the database (for running the apps with npm instead):  docker compose up -d --wait postgres
+#
+# Settings come from a root `.env` file when present (see .env.example); the defaults below need
+# no configuration. These defaults are for local use only; production uses
+# docker-compose.prod.yml (see docs/DEPLOYMENT.md).
+name: daily-task-update
+
+x-database-url: &database-url postgresql://${POSTGRES_USER:-dtu_user}:${POSTGRES_PASSWORD:-dtu_password}@postgres:5432/${POSTGRES_DB:-daily_task_update}?schema=public
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dtu_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dtu_password}
+      POSTGRES_DB: ${POSTGRES_DB:-daily_task_update}
+    # Host port 5433 by default, so it never clashes with a PostgreSQL installed on the machine.
+    ports:
+      - '127.0.0.1:${POSTGRES_PORT:-5433}:5432'
+    volumes:
+      # PostgreSQL 18+ images store data in a versioned subdirectory of /var/lib/postgresql.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # Applies database migrations, then exits. The API starts only after it succeeded.
+  migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: migrate
+    restart: 'no'
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runtime
+    restart: unless-stopped
+    environment:
+      # Local mode: Swagger at /api/docs, password reset links in the log, cookies over HTTP.
+      NODE_ENV: development
+      DATABASE_URL: *database-url
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-local-docker-jwt-secret-change-for-real-use-0001}
+      CSRF_SECRET: ${CSRF_SECRET:-local-docker-csrf-secret-change-for-real-use-0002}
+      COOKIE_SECURE: 'false'
+      FRONTEND_URL: http://localhost:${WEB_PORT:-8080}
+      CORS_ORIGINS: http://localhost:${WEB_PORT:-8080}
+      # One proxy in front of the API: the web container (nginx).
+      TRUST_PROXY: '1'
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      WORKBOOK_STORAGE_DIR: /data/workbooks
+      LOG_FORMAT: text
+    volumes:
+      - workbook-data:/data/workbooks
+    init: true
+    stop_grace_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: http://api:3000
+    ports:
+      - '${WEB_PORT:-8080}:8080'
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  workbook-data:

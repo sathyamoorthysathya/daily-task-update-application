@@ -1,0 +1,173 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24'
+  # Test-only values (no real data); production secrets live in the deployment environment.
+  DATABASE_URL: postgresql://dtu:dtu_ci_password@localhost:5432/daily_task_update?schema=public
+  JWT_ACCESS_SECRET: ci-jwt-0f8a7c6e5d4b3a29181726354a5b6c7d8e9f
+  CSRF_SECRET: ci-csrf-9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f
+  CI: 'true'
+
+jobs:
+  quality:
+    name: Lint, typecheck, unit tests, build, audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
+      - name: Dependency audit (production dependencies, high and critical)
+        run: npm audit --omit=dev --audit-level=high
+
+  api-integration:
+    name: API, database and Excel sync tests (PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: dtu
+          POSTGRES_PASSWORD: dtu_ci_password
+          POSTGRES_DB: daily_task_update
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U dtu -d daily_task_update"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Apply migrations
+        run: npm run prisma:deploy -w backend
+      - name: Schema and migrations are in sync
+        working-directory: backend
+        run: npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+      - run: npm run test:e2e
+
+  browser:
+    name: Playwright end-to-end tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: dtu
+          POSTGRES_PASSWORD: dtu_ci_password
+          POSTGRES_DB: daily_task_update
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U dtu -d daily_task_update"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:deploy -w backend
+      - run: npm run build
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: e2e
+      - name: Run Playwright
+        run: npm run test:browser
+        env:
+          E2E_SKIP_BUILD: '1'
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 14
+
+  docker:
+    name: Docker images and production stack smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [quality]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Production settings for the smoke test
+        run: |
+          {
+            echo "POSTGRES_USER=dtu"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)"
+            echo "POSTGRES_DB=daily_task_update"
+            echo "FRONTEND_URL=http://localhost:8080"
+            echo "CORS_ORIGINS=http://localhost:8080"
+            echo "JWT_ACCESS_SECRET=$(openssl rand -base64 48)"
+            echo "CSRF_SECRET=$(openssl rand -base64 48)"
+            echo "COOKIE_SECURE=true"
+            echo "TRUST_PROXY=1"
+            echo "WEB_PORT=8080"
+          } > .env.production
+      - name: Build and start the stack
+        run: docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build --wait
+      - name: Smoke test
+        run: |
+          set -e
+          curl -fsS http://localhost:8080/healthz
+          curl -fsS http://localhost:8080/api/health | tee /dev/stderr | grep -q '"status":"ok"'
+          curl -fsS -D - -o /dev/null http://localhost:8080/ | grep -qi 'content-security-policy'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/docs)" = 404
+      - name: Graceful shutdown
+        run: |
+          docker compose -f docker-compose.prod.yml --env-file .env.production stop api
+          docker compose -f docker-compose.prod.yml --env-file .env.production logs api | grep -q 'Database connections closed'
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.prod.yml --env-file .env.production logs
+      - name: Clean up
+        if: always()
+        run: docker compose -f docker-compose.prod.yml --env-file .env.production down -v
+
+      # Continuous delivery: publish images for every commit on main (tagged with the commit SHA).
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish images
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          export IMAGE_PREFIX="${IMAGE_PREFIX,,}"
+          docker compose -f docker-compose.prod.yml --env-file .env.production build
+          for image in migrate api web; do docker push "$IMAGE_PREFIX-$image:$IMAGE_TAG"; done

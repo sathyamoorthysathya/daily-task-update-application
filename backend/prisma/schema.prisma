@@ -1,0 +1,368 @@
+// Prisma schema: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// An application user. Email is stored normalised (trimmed, lower-case).
+model User {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  email             String    @unique @db.VarChar(254)
+  name              String    @db.VarChar(100)
+  /// Argon2id hash (PHC string). Null for accounts that only sign in with an external provider.
+  passwordHash      String?   @map("password_hash")
+  /// Set once ownership of the email address is proven (verified Google identity or password reset link).
+  emailVerifiedAt   DateTime? @map("email_verified_at") @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  /// Workbook pre-selected for new tasks. Always one of the user's own workbooks (enforced by the API).
+  defaultWorkbookId String?   @unique @map("default_workbook_id") @db.Uuid
+
+  defaultWorkbook     Workbook?            @relation("DefaultWorkbook", fields: [defaultWorkbookId], references: [id], onDelete: SetNull)
+  workbooks           Workbook[]           @relation("UserWorkbooks")
+  tasks               Task[]
+  taskUpdates         TaskUpdate[]
+  taskHistory         TaskHistory[]
+  excelSyncJobs       ExcelSyncJob[]
+  profile             UserProfile?
+  avatar              UserAvatar?
+  accounts            AuthAccount[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+
+  @@map("users")
+}
+
+/// Professional profile details (1:1 with users, created with the user).
+model UserProfile {
+  userId            String   @id @map("user_id") @db.Uuid
+  /// International format, e.g. "+44 20 7946 0958".
+  phone             String?  @db.VarChar(32)
+  companyName       String?  @map("company_name") @db.VarChar(120)
+  jobRole           String?  @map("job_role") @db.VarChar(100)
+  /// One of the values in src/modules/users/profile/industries.ts.
+  industry          String?  @db.VarChar(60)
+  /// 0-60 (CHECK constraint in the migration).
+  yearsOfExperience Int?     @map("years_of_experience") @db.SmallInt
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+/// Profile picture, re-encoded by the API (256x256 WebP, metadata stripped). Kept in its own
+/// table so profile queries never load image bytes.
+model UserAvatar {
+  userId    String   @id @map("user_id") @db.Uuid
+  data      Bytes
+  mimeType  String   @map("mime_type") @db.VarChar(32)
+  sizeBytes Int      @map("size_bytes")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_avatars")
+}
+
+enum AuthProvider {
+  GOOGLE
+
+  @@map("auth_provider")
+}
+
+/// An external identity (e.g. a Google account) linked to a user.
+model AuthAccount {
+  id                String       @id @default(uuid(7)) @db.Uuid
+  userId            String       @map("user_id") @db.Uuid
+  provider          AuthProvider
+  /// Stable subject identifier from the provider (Google `sub` claim), never the email.
+  providerAccountId String       @map("provider_account_id") @db.VarChar(255)
+  /// Email, display name and picture reported by the provider at the last sign-in (informational only).
+  email             String?      @db.VarChar(254)
+  name              String?      @db.VarChar(100)
+  pictureUrl        String?      @map("picture_url") @db.VarChar(1024)
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastLoginAt       DateTime     @default(now()) @map("last_login_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("auth_accounts")
+}
+
+/// Refresh tokens are stored only as SHA-256 hashes. Tokens issued by rotation share a `familyId`
+/// (one family = one login session); reuse of a rotated token revokes the whole family.
+model RefreshToken {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  familyId         String    @map("family_id") @db.Uuid
+  tokenHash        String    @unique @map("token_hash") @db.Char(64)
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(3)
+  replacedById     String?   @map("replaced_by_id") @db.Uuid
+  userAgent        String?   @map("user_agent") @db.VarChar(512)
+  ipAddress        String?   @map("ip_address") @db.VarChar(64)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// Sign-in time of the session (copied on rotation): enforces SESSION_MAX_DAYS.
+  sessionStartedAt DateTime  @default(now()) @map("session_started_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+/// Single-use password reset tokens, stored only as SHA-256 hashes.
+model PasswordResetToken {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash") @db.Char(64)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+/// Metadata of an Excel workbook. The .xlsx file itself lives on disk (WORKBOOK_STORAGE_DIR),
+/// never in PostgreSQL.
+model Workbook {
+  id             String    @id @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  name           String    @db.VarChar(100)
+  /// Lower-cased name: workbook names are unique per user, case-insensitively.
+  nameKey        String    @map("name_key") @db.VarChar(100)
+  /// Path relative to the storage root: "<userId>/<workbookId>.xlsx". Never derived from the name.
+  storageKey     String    @unique @map("storage_key") @db.VarChar(255)
+  sizeBytes      Int       @map("size_bytes")
+  /// SHA-256 of the stored file, verified before every download.
+  sha256         String    @db.Char(64)
+  /// Number of tasks (master records) in the workbook.
+  taskCount      Int       @default(0) @map("task_count")
+  /// Last task number handed out; task numbers are sequential per workbook.
+  lastTaskNumber Int       @default(0) @map("last_task_number")
+  /// Incremented with every task change; the Excel file is in sync when syncedVersion = dataVersion.
+  dataVersion    Int       @default(0) @map("data_version")
+  syncedVersion  Int       @default(0) @map("synced_version")
+  lastSyncedAt   DateTime? @map("last_synced_at") @db.Timestamptz(3)
+  /// Last Excel synchronisation error (cleared on success).
+  syncError      String?   @map("sync_error") @db.VarChar(500)
+  /// Optimistic-concurrency version for renames/deletes.
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user       User           @relation("UserWorkbooks", fields: [userId], references: [id], onDelete: Cascade)
+  defaultFor User?          @relation("DefaultWorkbook")
+  tasks      Task[]
+  syncJobs   ExcelSyncJob[]
+
+  @@unique([userId, nameKey])
+  @@index([userId, createdAt])
+  @@map("workbooks")
+}
+
+enum TaskStatus {
+  TO_DO
+  IN_PROGRESS
+  PENDING
+  COMPLETED
+  ON_HOLD
+
+  @@map("task_status")
+}
+
+enum TaskHistoryAction {
+  TASK_CREATED
+  ENTRY_ADDED
+  ENTRY_UPDATED
+  TASK_RENAMED
+  TASK_DELETED
+
+  @@map("task_history_action")
+}
+
+/// Master record of a task, unique per workbook by (case- and space-insensitive) name.
+model Task {
+  id            String     @id @default(uuid(7)) @db.Uuid
+  userId        String     @map("user_id") @db.Uuid
+  workbookId    String     @map("workbook_id") @db.Uuid
+  /// Sequential per workbook, assigned on creation and never reused.
+  taskNumber    Int        @map("task_number")
+  name          String     @db.VarChar(200)
+  /// Normalised name (trimmed, single spaces, lower case) used for duplicate detection and
+  /// search. NULL once the task is deleted, which frees the name for a new task.
+  nameKey       String?    @map("name_key") @db.VarChar(200)
+  /// Status of the most recent dated update.
+  status        TaskStatus
+  lastEntryDate DateTime   @map("last_entry_date") @db.Date
+  entryCount    Int        @default(1) @map("entry_count")
+  /// Optimistic-concurrency version, incremented on every change to the task or its updates.
+  version       Int        @default(1)
+  /// Soft delete: the task, its updates and its history are kept for auditing but hidden
+  /// everywhere (lists, duplicate detection, Excel).
+  deletedAt     DateTime?  @map("deleted_at") @db.Timestamptz(3)
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workbook Workbook       @relation(fields: [workbookId], references: [id], onDelete: Cascade)
+  updates  TaskUpdate[]
+  history  TaskHistory[]
+  syncJobs ExcelSyncJob[]
+
+  @@unique([workbookId, nameKey])
+  @@unique([workbookId, taskNumber])
+  /// Task list: the user's tasks, latest first.
+  @@index([userId, lastEntryDate(sort: Desc)])
+  /// Name search (LIKE '%term%') through a trigram index.
+  @@index([nameKey(ops: raw("gin_trgm_ops"))], type: Gin, map: "tasks_name_key_trgm_idx")
+  @@map("tasks")
+}
+
+/// One dated submission for a task (one row in the Excel sheet). At most one per task and date.
+model TaskUpdate {
+  id          String     @id @default(uuid(7)) @db.Uuid
+  taskId      String     @map("task_id") @db.Uuid
+  userId      String     @map("user_id") @db.Uuid
+  entryDate   DateTime   @map("entry_date") @db.Date
+  status      TaskStatus
+  description String     @db.VarChar(5000)
+  reference   String?    @db.VarChar(2000)
+  /// Optimistic-concurrency version, incremented on every edit.
+  version     Int        @default(1)
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task    Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  history TaskHistory[]
+
+  @@unique([taskId, entryDate])
+  @@index([userId, entryDate])
+  @@map("task_updates")
+}
+
+/// Append-only audit trail (UPDATE is blocked by a database trigger).
+model TaskHistory {
+  id           String            @id @default(uuid(7)) @db.Uuid
+  taskId       String            @map("task_id") @db.Uuid
+  taskUpdateId String?           @map("task_update_id") @db.Uuid
+  userId       String            @map("user_id") @db.Uuid
+  action       TaskHistoryAction
+  /// Snapshot of the new values, and "from"/"to" pairs for edits.
+  changes      Json
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task       Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskUpdate TaskUpdate? @relation(fields: [taskUpdateId], references: [id], onDelete: Cascade)
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@map("task_history")
+}
+
+enum ExcelSyncJobStatus {
+  /// Waiting to be processed (first attempt).
+  PENDING
+  /// Claimed by a worker (lease: locked_at / locked_by).
+  PROCESSING
+  SUCCEEDED
+  /// Last attempt failed; retried at next_attempt_at.
+  FAILED
+  /// Retry limit reached; an alert was raised. Resolved by a later successful sync.
+  DEAD
+
+  @@map("excel_sync_job_status")
+}
+
+enum ExcelSyncReason {
+  TASK_CREATED
+  ENTRY_ADDED
+  ENTRY_UPDATED
+  TASK_RENAMED
+  TASK_DELETED
+  MANUAL
+  RECOVERY
+
+  @@map("excel_sync_reason")
+}
+
+/// Transactional outbox for Excel synchronisation: written in the same transaction as the task
+/// change, processed asynchronously by the Excel sync worker.
+model ExcelSyncJob {
+  id                String             @id @default(uuid(7)) @db.Uuid
+  workbookId        String             @map("workbook_id") @db.Uuid
+  userId            String             @map("user_id") @db.Uuid
+  /// Task that caused the job (informational).
+  taskId            String?            @map("task_id") @db.Uuid
+  reason            ExcelSyncReason
+  status            ExcelSyncJobStatus @default(PENDING)
+  /// The workbook's data_version this job must bring the file up to.
+  targetDataVersion Int                @map("target_data_version")
+  attempts          Int                @default(0)
+  maxAttempts       Int                @map("max_attempts")
+  nextAttemptAt     DateTime           @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  lockedAt          DateTime?          @map("locked_at") @db.Timestamptz(3)
+  lockedBy          String?            @map("locked_by") @db.VarChar(100)
+  lastError         String?            @map("last_error") @db.VarChar(1000)
+  /// The job whose successful sync also covered this one (coalescing).
+  resolvedByJobId   String?            @map("resolved_by_job_id") @db.Uuid
+  completedAt       DateTime?          @map("completed_at") @db.Timestamptz(3)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workbook Workbook @relation(fields: [workbookId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task     Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  /// Worker polling: due jobs by status and time.
+  @@index([status, nextAttemptAt])
+  @@index([workbookId, status])
+  @@map("excel_sync_jobs")
+}
+
+enum AuditOutcome {
+  SUCCESS
+  FAILURE
+
+  @@map("audit_outcome")
+}
+
+/// Security audit log. Append-only (UPDATE is rejected by a trigger; DELETE only for retention).
+/// No foreign keys on purpose: records survive the deletion of users and workbooks.
+model AuditEvent {
+  id           String       @id @default(uuid(7)) @db.Uuid
+  /// e.g. "auth.login", "auth.password_changed", "workbook.deleted"
+  event        String       @db.VarChar(64)
+  outcome      AuditOutcome
+  /// Acting / affected user, when known.
+  userId       String?      @map("user_id") @db.Uuid
+  /// Email submitted, for events without a known user (e.g. failed logins).
+  email        String?      @db.VarChar(254)
+  ip           String?      @db.VarChar(64)
+  userAgent    String?      @map("user_agent") @db.VarChar(300)
+  requestId    String?      @map("request_id") @db.VarChar(128)
+  resourceType String?      @map("resource_type") @db.VarChar(32)
+  resourceId   String?      @map("resource_id") @db.Uuid
+  /// Event-specific details (reasons, counts); never secrets.
+  details      Json?
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([userId, createdAt])
+  @@index([event, createdAt])
+  @@index([createdAt])
+  @@map("audit_events")
+}

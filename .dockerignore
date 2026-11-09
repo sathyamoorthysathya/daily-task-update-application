@@ -1,0 +1,18 @@
+# Keep the build context small and free of secrets and local data.
+**/node_modules
+**/dist
+**/coverage
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+!**/.env.example
+backend/storage
+backend/src/generated
+e2e/test-results
+e2e/playwright-report
+backups
+.git
+.github
+.vscode
+.idea
+**/*.log
