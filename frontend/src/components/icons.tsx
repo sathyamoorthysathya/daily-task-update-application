@@ -50,6 +50,41 @@ export const SheetIcon = () => (
   </Icon>
 );
 
+export const ReportIcon = () => (
+  <Icon>
+    <path d="M6 3h9l4 4v14H6z" />
+    <path d="M15 3v4h4M9 17v-3M12 17v-6M15 17v-4" />
+  </Icon>
+);
+
+export const PencilIcon = () => (
+  <Icon>
+    <path d="M4 20h4L19 9l-4-4L4 16z" />
+    <path d="m13.5 6.5 4 4" />
+  </Icon>
+);
+
+export const DownloadIcon = () => (
+  <Icon>
+    <path d="M12 4v11M7 10l5 5 5-5" />
+    <path d="M5 20h14" />
+  </Icon>
+);
+
+export const PrinterIcon = () => (
+  <Icon>
+    <path d="M7 9V3h10v6" />
+    <rect x="3" y="9" width="18" height="8" rx="2" />
+    <path d="M7 14h10v7H7z" />
+  </Icon>
+);
+
+export const ArrowRightIcon = () => (
+  <Icon>
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </Icon>
+);
+
 export const UserIcon = () => (
   <Icon>
     <circle cx="12" cy="8" r="4" />

@@ -160,10 +160,18 @@ describe('Workbook management (e2e)', () => {
         'Status',
         'Task ID (internal)',
         'Task Update ID (internal)',
+        'Project / Module',
+        'Assigned By',
+        'Priority',
+        'Due Date',
+        'Start Time',
+        'End Time',
+        'Hours Worked',
+        'Remarks / Blockers',
       ]);
       expect(sheet.getColumn(7).hidden).toBe(true);
       expect(sheet.getColumn(8).hidden).toBe(true);
-      expect(sheet.autoFilter).toBe('A1:F1');
+      expect(sheet.autoFilter).toBe('A1:P1');
       expect(sheet.views[0]).toMatchObject({ state: 'frozen', ySplit: 1 });
       expect(sheet.getRow(1).getCell(1).font).toMatchObject({ bold: true });
     });

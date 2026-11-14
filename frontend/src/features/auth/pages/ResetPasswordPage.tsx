@@ -49,7 +49,11 @@ export function ResetPasswordPage() {
     setValues((current) => ({ ...current, [field]: event.target.value }));
 
   return (
-    <AuthLayout title="Choose a new password" footer={<Link to="/login">Back to sign in</Link>}>
+    <AuthLayout
+      title="Choose a new password"
+      subtitle="Enter a new secure password to restore access to your account."
+      footer={<Link to="/login">Back to sign in</Link>}
+    >
       {linkInvalid ? (
         <FormAlert variant="error">
           This password reset link is invalid or has expired.{' '}

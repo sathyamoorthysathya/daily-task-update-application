@@ -8,6 +8,7 @@ import {
   LogoutIcon,
   MenuIcon,
   PlusIcon,
+  ReportIcon,
   SearchIcon,
   SheetIcon,
   TasksIcon,
@@ -30,6 +31,7 @@ const NAV_SECTIONS: { title: string; links: NavItem[] }[] = [
       // Also active on a task's detail page, but not on "Add task".
       { to: '/tasks', label: 'Tasks', icon: <TasksIcon />, exclude: '/tasks/new' },
       { to: '/tasks/new', label: 'Add task', icon: <PlusIcon /> },
+      { to: '/report', label: 'Work report', icon: <ReportIcon /> },
       { to: '/workbooks', label: 'Workbooks', icon: <SheetIcon /> },
     ],
   },

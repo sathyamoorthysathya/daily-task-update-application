@@ -1,4 +1,24 @@
+import type { TaskDetails, TaskUpdate } from '../features/tasks/task.types';
 import type { Workbook, WorkbookList } from '../features/workbooks/workbook.types';
+
+/** A task without the optional details (assigned by, priority, project, due date). */
+export const NO_TASK_DETAILS: TaskDetails = {
+  assignedBy: null,
+  priority: null,
+  project: null,
+  dueDate: null,
+};
+
+/** A daily entry without working hours or remarks. */
+export const NO_WORK_DETAILS: Pick<
+  TaskUpdate,
+  'startTime' | 'endTime' | 'minutesWorked' | 'remarks'
+> = {
+  startTime: null,
+  endTime: null,
+  minutesWorked: null,
+  remarks: null,
+};
 
 export function makeWorkbook(overrides: Partial<Workbook>): Workbook {
   return {

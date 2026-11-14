@@ -3,6 +3,7 @@ import {
   createTaskSchema,
   editTaskUpdateSchema,
   entryDateSchema,
+  renameTaskSchema,
   taskNameKey,
   taskNameSchema,
 } from './tasks.schemas.js';
@@ -13,6 +14,17 @@ const valid = {
   description: 'Collected invoices for October.',
   reference: 'https://docs.example.com/gst',
   status: 'IN_PROGRESS',
+};
+
+/** Work details are optional: left out, they are stored as "none". */
+const noDetails = {
+  assignedBy: null,
+  priority: null,
+  project: null,
+  dueDate: null,
+  startTime: null,
+  endTime: null,
+  remarks: null,
 };
 
 describe('task names', () => {
@@ -48,7 +60,7 @@ describe('entryDateSchema', () => {
 
 describe('createTaskSchema', () => {
   it('accepts a complete task and keeps an optional workbook', () => {
-    expect(createTaskSchema.parse(valid)).toEqual(valid);
+    expect(createTaskSchema.parse(valid)).toEqual({ ...valid, ...noDetails });
     expect(createTaskSchema.safeParse({ ...valid, workbookId: 'not-a-uuid' }).success).toBe(false);
   });
 
@@ -77,6 +89,75 @@ describe('createTaskSchema', () => {
     expect(createTaskSchema.safeParse({ ...valid, description: ' ' }).success).toBe(false);
     expect(createTaskSchema.safeParse({ ...valid, taskNumber: 99 }).success).toBe(false);
     expect(createTaskSchema.safeParse({ ...valid, userId: 'x' }).success).toBe(false);
+  });
+});
+
+describe('work details', () => {
+  it('accepts who assigned the task, priority, project, due date, hours and remarks', () => {
+    const parsed = createTaskSchema.parse({
+      ...valid,
+      assignedBy: '  Priya   (Team Lead) ',
+      priority: 'HIGH',
+      project: 'Billing module',
+      dueDate: '2026-11-20',
+      startTime: '09:30',
+      endTime: '13:15',
+      remarks: '  Waiting for invoices ',
+    });
+    expect(parsed).toMatchObject({
+      assignedBy: 'Priya (Team Lead)',
+      priority: 'HIGH',
+      project: 'Billing module',
+      dueDate: '2026-11-20',
+      startTime: '09:30',
+      endTime: '13:15',
+      remarks: 'Waiting for invoices',
+    });
+  });
+
+  it('treats empty details as none', () => {
+    const parsed = createTaskSchema.parse({ ...valid, assignedBy: ' ', project: '', remarks: '' });
+    expect(parsed).toMatchObject({ assignedBy: null, project: null, remarks: null });
+  });
+
+  it.each([
+    ['an unknown priority', { priority: 'URGENT' }],
+    ['an impossible due date', { dueDate: '2026-02-30' }],
+    ['a malformed time', { startTime: '9:30' }],
+    ['a time past midnight', { startTime: '24:00' }],
+    ['an end time without a start time', { endTime: '13:00' }],
+    ['an end time before the start time', { startTime: '13:00', endTime: '09:00' }],
+    ['an end time equal to the start time', { startTime: '13:00', endTime: '13:00' }],
+    ['an over-long name', { assignedBy: 'x'.repeat(101) }],
+  ])('rejects %s', (_case, fields) => {
+    expect(createTaskSchema.safeParse({ ...valid, ...fields }).success).toBe(false);
+  });
+
+  it('allows a start time on its own (work still in progress)', () => {
+    expect(createTaskSchema.safeParse({ ...valid, startTime: '09:30' }).success).toBe(true);
+  });
+
+  it('checks the working hours of new and edited entries too', () => {
+    const entry = { entryDate: valid.entryDate, description: 'x', status: 'TO_DO' };
+    expect(addTaskUpdateSchema.safeParse({ ...entry, endTime: '10:00' }).success).toBe(false);
+    const edit = { description: 'x', status: 'TO_DO', version: 1 };
+    expect(
+      editTaskUpdateSchema.safeParse({ ...edit, startTime: '10:00', endTime: '09:00' }).success,
+    ).toBe(false);
+    expect(
+      editTaskUpdateSchema.parse({ ...edit, startTime: '09:00', endTime: '10:00', remarks: 'ok' }),
+    ).toMatchObject({ startTime: '09:00', endTime: '10:00', remarks: 'ok' });
+  });
+
+  it('changes only the task details that are sent', () => {
+    const renamed = renameTaskSchema.parse({ name: 'New name', version: 2 });
+    expect(renamed).toEqual({ name: 'New name', version: 2 });
+    expect(
+      renameTaskSchema.parse({ name: 'x', version: 1, assignedBy: '', priority: null }),
+    ).toEqual({ name: 'x', version: 1, assignedBy: null, priority: null });
+    expect(renameTaskSchema.safeParse({ name: 'x', version: 1, priority: 'TOP' }).success).toBe(
+      false,
+    );
   });
 });
 

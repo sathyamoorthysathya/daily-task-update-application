@@ -74,30 +74,127 @@ const referenceSchema = z
 
 const statusSchema = z.enum(TASK_STATUS_VALUES, { error: 'Choose a valid status' });
 
-const entryFields = {
-  entryDate: entryDateSchema,
-  description: descriptionSchema,
-  reference: referenceSchema,
-  status: statusSchema,
+export const TASK_PRIORITY_VALUES = ['LOW', 'MEDIUM', 'HIGH'] as const;
+
+/** A field that may be left out: omitted and null both mean "no value". */
+const orNull = <T extends z.ZodType>(schema: T) =>
+  schema.optional().transform((value) => value ?? null);
+
+/** Single-line text: trimmed, inner whitespace collapsed, empty becomes null. */
+const lineSchema = (label: string, max: number) =>
+  z
+    .string({ error: `${label} must be text` })
+    .transform((value) => value.replace(/\s+/g, ' ').trim())
+    .pipe(z.string().max(max, `${label} must be at most ${max} characters`))
+    .transform((value) => (value === '' ? null : value))
+    .nullable();
+
+const prioritySchema = z
+  .enum(TASK_PRIORITY_VALUES, { error: 'Choose a valid priority' })
+  .nullable();
+
+/** Deadline: any valid calendar date from 2000 on (it may be in the past or far ahead). */
+const dueDateSchema = z
+  .string({ error: 'Due date must be a date' })
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter the due date as YYYY-MM-DD')
+  .refine((value) => {
+    const date = parseCalendarDate(value);
+    return !Number.isNaN(date.getTime()) && formatCalendarDate(date) === value;
+  }, 'Enter a valid due date')
+  .refine((value) => value >= EARLIEST_DATE, 'The due date cannot be before 2000')
+  .nullable();
+
+/** Wall-clock time of day, "HH:MM" (24 hours). */
+const timeSchema = (label: string) =>
+  orNull(
+    z
+      .string({ error: `${label} must be a time` })
+      .regex(/^([01]\d|2[0-3]):[0-5]\d$/, `Enter the ${label.toLowerCase()} as HH:MM`)
+      .nullable(),
+  );
+
+const remarksSchema = orNull(
+  z
+    .string({ error: 'Remarks must be text' })
+    .trim()
+    .max(2000, 'Remarks must be at most 2000 characters')
+    .transform((value) => (value === '' ? null : value))
+    .nullable(),
+);
+
+/** Details of the task itself (the same for all its daily entries); null clears one. */
+const taskDetailSchemas = {
+  assignedBy: lineSchema('Assigned by', 100),
+  priority: prioritySchema,
+  project: lineSchema('Project', 100),
+  dueDate: dueDateSchema,
 };
 
-export const createTaskSchema = z.strictObject({
-  /** Omit to use the default workbook. */
-  workbookId: z.uuid('Invalid workbook ID').optional(),
-  name: taskNameSchema,
-  ...entryFields,
-});
+const taskDetailFields = {
+  assignedBy: orNull(taskDetailSchemas.assignedBy),
+  priority: orNull(taskDetailSchemas.priority),
+  project: orNull(taskDetailSchemas.project),
+  dueDate: orNull(taskDetailSchemas.dueDate),
+};
 
-/** "Create New Daily Task Entry" for an existing task. */
-export const addTaskUpdateSchema = z.strictObject(entryFields);
-
-/** "Update Existing Task": edits one dated update; its date is part of history and fixed. */
-export const editTaskUpdateSchema = z.strictObject({
+/** Details of one day's work. */
+const workFields = {
   description: descriptionSchema,
   reference: referenceSchema,
   status: statusSchema,
-  version: z.number({ error: 'Version is required' }).int().min(1),
-});
+  startTime: timeSchema('Start time'),
+  endTime: timeSchema('End time'),
+  remarks: remarksSchema,
+};
+
+const entryFields = {
+  entryDate: entryDateSchema,
+  ...workFields,
+};
+
+/** An end time needs a start time and must come after it ("HH:MM" compares as text). */
+function checkWorkingHours(
+  value: { startTime: string | null; endTime: string | null },
+  context: z.RefinementCtx,
+): void {
+  if (value.endTime === null) {
+    return;
+  }
+  if (value.startTime === null) {
+    context.addIssue({
+      code: 'custom',
+      path: ['startTime'],
+      message: 'Enter a start time for the end time',
+    });
+  } else if (value.endTime <= value.startTime) {
+    context.addIssue({
+      code: 'custom',
+      path: ['endTime'],
+      message: 'The end time must be after the start time',
+    });
+  }
+}
+
+export const createTaskSchema = z
+  .strictObject({
+    /** Omit to use the default workbook. */
+    workbookId: z.uuid('Invalid workbook ID').optional(),
+    name: taskNameSchema,
+    ...taskDetailFields,
+    ...entryFields,
+  })
+  .superRefine(checkWorkingHours);
+
+/** "Create New Daily Task Entry" for an existing task. */
+export const addTaskUpdateSchema = z.strictObject(entryFields).superRefine(checkWorkingHours);
+
+/** "Update Existing Task": edits one dated update; its date is part of history and fixed. */
+export const editTaskUpdateSchema = z
+  .strictObject({
+    ...workFields,
+    version: z.number({ error: 'Version is required' }).int().min(1),
+  })
+  .superRefine(checkWorkingHours);
 
 export const lookupTaskQuerySchema = z.object({
   workbookId: z.uuid('Invalid workbook ID').optional(),
@@ -152,10 +249,30 @@ export const taskSummaryQuerySchema = z.object({
   days: optionalParam(z.coerce.number().int().min(7).max(90)).transform((v) => v ?? 14),
 });
 
+/**
+ * Renames a task and/or changes its details. Details that are omitted stay as they are; send
+ * null (or an empty text) to clear one.
+ */
 export const renameTaskSchema = z.strictObject({
   name: taskNameSchema,
+  assignedBy: taskDetailSchemas.assignedBy.optional(),
+  priority: taskDetailSchemas.priority.optional(),
+  project: taskDetailSchemas.project.optional(),
+  dueDate: taskDetailSchemas.dueDate.optional(),
   version: z.number({ error: 'Version is required' }).int().min(1),
 });
+
+/** Work report: the entries dated in [from, to]; without bounds, everything. */
+export const taskReportQuerySchema = z
+  .object({
+    from: optionalParam(filterDateSchema),
+    to: optionalParam(filterDateSchema),
+    workbookId: optionalParam(z.uuid('Invalid workbook ID')),
+  })
+  .refine((query) => !query.from || !query.to || query.from <= query.to, {
+    path: ['to'],
+    message: 'The end date must be on or after the start date',
+  });
 
 export const deleteTaskQuerySchema = z.object({
   version: z.coerce.number({ error: 'Version is required' }).int().min(1),
@@ -168,5 +285,24 @@ export type LookupTaskQuery = z.infer<typeof lookupTaskQuerySchema>;
 export type ListTaskUpdatesQuery = z.infer<typeof listTaskUpdatesQuerySchema>;
 export type ListTasksQuery = z.infer<typeof listTasksQuerySchema>;
 export type RenameTaskInput = z.infer<typeof renameTaskSchema>;
+export type TaskReportQuery = z.infer<typeof taskReportQuerySchema>;
+
+export const REPORT_FORMATS = ['xlsx', 'pdf'] as const;
+
+/** Downloading the work report: the same period filters, and the file format (Excel by default). */
+export const reportDownloadQuerySchema = z
+  .object({
+    from: optionalParam(filterDateSchema),
+    to: optionalParam(filterDateSchema),
+    workbookId: optionalParam(z.uuid('Invalid workbook ID')),
+    format: optionalParam(z.enum(REPORT_FORMATS, { error: 'Choose xlsx or pdf' })).transform(
+      (value) => value ?? 'xlsx',
+    ),
+  })
+  .refine((query) => !query.from || !query.to || query.from <= query.to, {
+    path: ['to'],
+    message: 'The end date must be on or after the start date',
+  });
+export type ReportDownloadQuery = z.infer<typeof reportDownloadQuerySchema>;
 export type TaskSummaryQuery = z.infer<typeof taskSummaryQuerySchema>;
 export type DeleteTaskQuery = z.infer<typeof deleteTaskQuerySchema>;

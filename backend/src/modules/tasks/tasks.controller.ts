@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { WriteRateLimit } from '../auth/decorators/rate-limit.decorator.js';
 import {
   ApiBadRequestResponse,
@@ -8,6 +9,7 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiProduces,
   ApiQuery,
   ApiSecurity,
   ApiTags,
@@ -26,6 +28,7 @@ import {
   TaskDetailDto,
   TaskLookupDto,
   TaskPageDto,
+  TaskReportDto,
 } from './dto/task.dto.js';
 import {
   type AddTaskUpdateInput,
@@ -46,10 +49,17 @@ import {
   lookupTaskQuerySchema,
   type RenameTaskInput,
   renameTaskSchema,
+  type ReportDownloadQuery,
+  reportDownloadQuerySchema,
+  REPORT_FORMATS,
+  type TaskReportQuery,
+  taskReportQuerySchema,
   TASK_SORTS,
   uuidParamSchema,
 } from './tasks.schemas.js';
 import { TASK_STATUS_VALUES } from './task-status.js';
+import { workbookContentDisposition } from '../workbooks/content-disposition.js';
+import { XLSX_MIME_TYPE } from '../workbooks/workbook.constants.js';
 import { TasksService } from './tasks.service.js';
 
 @ApiTags('Tasks')
@@ -111,6 +121,53 @@ export class TasksController {
     return this.tasks.summary(user.id, query);
   }
 
+  @Get('report')
+  @ApiOperation({
+    summary: 'Work report',
+    description:
+      'Daily entries dated in [from, to] (oldest first) with their tasks, and the totals of the ' +
+      'period. Without from/to it covers all work. Returns at most 2000 entries.',
+  })
+  @ApiQuery({ name: 'from', required: false, example: '2026-11-01' })
+  @ApiQuery({ name: 'to', required: false, example: '2026-11-30' })
+  @ApiQuery({ name: 'workbookId', required: false })
+  @ApiOkResponse({ type: TaskReportDto })
+  report(
+    @CurrentUser() user: AuthUser,
+    @Query({ schema: taskReportQuerySchema }) query: TaskReportQuery,
+  ): Promise<TaskReportDto> {
+    return this.tasks.report(user.id, query);
+  }
+
+  @Get('report/download')
+  @ApiOperation({
+    summary: 'Download the work report (.xlsx or .pdf)',
+    description:
+      'The same entries as GET /tasks/report. xlsx: Summary, Tasks and Daily log sheets; ' +
+      'pdf: A4 landscape with the totals, a task table and the daily log.',
+  })
+  @ApiQuery({ name: 'from', required: false, example: '2026-11-01' })
+  @ApiQuery({ name: 'to', required: false, example: '2026-11-30' })
+  @ApiQuery({ name: 'workbookId', required: false })
+  @ApiQuery({ name: 'format', required: false, enum: REPORT_FORMATS, description: 'Default xlsx' })
+  @ApiProduces(XLSX_MIME_TYPE, 'application/pdf')
+  @ApiOkResponse({ description: 'The report file' })
+  async downloadReport(
+    @CurrentUser() user: AuthUser,
+    @Query({ schema: reportDownloadQuerySchema }) query: ReportDownloadQuery,
+    @Res() res: Response,
+  ): Promise<void> {
+    const file = await this.tasks.exportReport(user.id, query);
+    res.set({
+      'Content-Type': query.format === 'pdf' ? 'application/pdf' : XLSX_MIME_TYPE,
+      'Content-Length': String(file.data.length),
+      'Content-Disposition': workbookContentDisposition(file.fileName, query.format),
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    res.send(file.data);
+  }
+
   @Get('lookup')
   @ApiOperation({
     summary: 'Find an existing task with the same name',
@@ -165,8 +222,10 @@ export class TasksController {
   @Patch(':taskId')
   @ApiSecurity('csrf')
   @ApiOperation({
-    summary: 'Rename a task',
-    description: 'Requires the task version; the Excel rows of the task are updated.',
+    summary: 'Rename a task or change its details',
+    description:
+      'Changes the name and/or assigned by, priority, project and due date (omitted details ' +
+      'stay as they are; null clears one). Requires the task version; the Excel rows follow.',
   })
   @ApiZodBody(renameTaskSchema)
   @ApiOkResponse({ type: SaveTaskSummaryDto })

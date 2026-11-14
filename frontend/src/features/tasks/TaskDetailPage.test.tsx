@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '../../app/routes';
+import { NO_TASK_DETAILS, NO_WORK_DETAILS } from '../../test/fixtures';
 import { apiError, clearCookies, type MockHandler, mockApi, TEST_USER } from '../../test/mock-api';
 import { AuthProvider } from '../auth/AuthProvider';
 import type { TaskDetail } from './task.types';
@@ -14,6 +15,7 @@ const TASK: TaskDetail = {
   status: 'COMPLETED',
   lastEntryDate: '2026-11-06',
   entryCount: 2,
+  ...NO_TASK_DETAILS,
   version: 4,
   createdAt: '2026-11-05T09:00:00.000Z',
   workbook: { id: 'wb-main', name: 'Main' },
@@ -25,6 +27,7 @@ const TASK: TaskDetail = {
       status: 'COMPLETED',
       description: 'Filed the return.',
       reference: 'https://docs.example.com/gst',
+      ...NO_WORK_DETAILS,
       version: 2,
       createdAt: '2026-11-06T09:00:00.000Z',
       updatedAt: '2026-11-06T10:00:00.000Z',
@@ -36,6 +39,7 @@ const TASK: TaskDetail = {
       status: 'IN_PROGRESS',
       description: 'Collected invoices.',
       reference: null,
+      ...NO_WORK_DETAILS,
       version: 1,
       createdAt: '2026-11-05T09:00:00.000Z',
       updatedAt: '2026-11-05T09:00:00.000Z',
@@ -115,20 +119,23 @@ describe('TaskDetailPage', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: 'Prepare GST report' }),
     ).toBeInTheDocument();
-    expect(card.getByText('#12')).toBeInTheDocument();
-    expect(card.getByText('Filed the return.')).toBeInTheDocument();
+    const breadcrumb = within(screen.getByRole('navigation', { name: 'Breadcrumb' }));
+    expect(breadcrumb.getByRole('link', { name: 'Tasks' })).toHaveAttribute('href', '/tasks');
+    expect(breadcrumb.getByText('#12')).toBeInTheDocument();
     expect(card.getByText(/6 Nov 2026|Nov 6, 2026/)).toBeInTheDocument();
-    expect(card.getByRole('link', { name: 'https://docs.example.com/gst' })).toHaveAttribute(
-      'rel',
-      'noopener noreferrer',
-    );
-    expect(card.getByText('Completed')).toBeInTheDocument();
     expect(card.getByRole('link', { name: 'Main' })).toBeInTheDocument();
 
     const updates = within(
-      screen.getByRole('heading', { name: 'Task updates' }).closest('section')!,
+      screen.getByRole('heading', { name: 'Daily entries' }).closest('section')!,
     );
     expect(updates.getAllByRole('listitem')).toHaveLength(2);
+    expect(updates.getByText('Filed the return.')).toBeInTheDocument();
+    expect(updates.getByText('Completed')).toBeInTheDocument();
+    expect(updates.getByText('Latest')).toBeInTheDocument();
+    expect(updates.getByRole('link', { name: 'https://docs.example.com/gst' })).toHaveAttribute(
+      'rel',
+      'noopener noreferrer',
+    );
     expect(updates.getByText('Collected invoices.')).toBeInTheDocument();
   });
 
@@ -173,8 +180,10 @@ describe('TaskDetailPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     const form = within(screen.getByRole('form', { name: 'Edit task' }));
+    // The form edits what the Details card shows, nothing from the daily entries.
+    expect(form.queryByLabelText('Task Status')).not.toBeInTheDocument();
+    expect(form.queryByLabelText('Task Description')).not.toBeInTheDocument();
     fireEvent.change(form.getByLabelText('Task Name'), { target: { value: 'Prepare GST return' } });
-    fireEvent.change(form.getByLabelText('Task Status'), { target: { value: 'On Hold' } });
     fireEvent.click(form.getByRole('button', { name: 'Save changes' }));
 
     expect(
@@ -185,15 +194,6 @@ describe('TaskDetailPage', () => {
     const patches = requests.filter((r) => r.method === 'PATCH');
     expect(patches.map((r) => [r.path, r.body])).toEqual([
       ['/tasks/task-1', { name: 'Prepare GST return', version: 4 }],
-      [
-        '/tasks/task-1/updates/upd-2',
-        {
-          description: 'Filed the return.',
-          reference: 'https://docs.example.com/gst',
-          status: 'ON_HOLD',
-          version: 2,
-        },
-      ],
     ]);
     await waitFor(() => expect(loads).toBe(2));
   });
@@ -205,13 +205,11 @@ describe('TaskDetailPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     const form = within(screen.getByRole('form', { name: 'Edit task' }));
     fireEvent.change(form.getByLabelText('Task Name'), { target: { value: '  ' } });
-    fireEvent.change(form.getByLabelText('Documentation Link / Reference'), {
-      target: { value: 'ftp://x' },
-    });
+    fireEvent.change(form.getByLabelText('Assigned By'), { target: { value: 'x'.repeat(101) } });
     fireEvent.click(form.getByRole('button', { name: 'Save changes' }));
 
     expect(await form.findByText('Task name is required')).toBeInTheDocument();
-    expect(form.getByText('Links must start with http:// or https://')).toBeInTheDocument();
+    expect(form.getByText('Assigned by must be at most 100 characters')).toBeInTheDocument();
     expect(requests.some((r) => r.method === 'PATCH')).toBe(false);
   });
 
@@ -229,6 +227,12 @@ describe('TaskDetailPage', () => {
     fireEvent.change(form.getByLabelText('Description'), {
       target: { value: 'Collected all invoices.' },
     });
+    const pick = (label: string, value: string) =>
+      fireEvent.change(form.getByLabelText(label), { target: { value } });
+    pick('Start time hour', '10');
+    pick('End time hour', '12');
+    pick('End time minute', '30');
+    pick('End time AM or PM', 'PM');
     fireEvent.click(form.getByRole('button', { name: 'Save entry' }));
 
     expect(
@@ -240,8 +244,88 @@ describe('TaskDetailPage', () => {
       description: 'Collected all invoices.',
       reference: null,
       status: 'IN_PROGRESS',
+      startTime: '10:00',
+      endTime: '12:30',
+      remarks: null,
       version: 1,
     });
+  });
+
+  it('shows the task details and the working hours of each entry', async () => {
+    renderDetail({
+      'GET /tasks/task-1': {
+        body: {
+          ...TASK,
+          assignedBy: 'Priya (Team Lead)',
+          priority: 'HIGH',
+          project: 'Billing module',
+          dueDate: '2026-11-20',
+          updates: [
+            {
+              ...TASK.updates[0],
+              startTime: '09:30',
+              endTime: '13:15',
+              minutesWorked: 225,
+              remarks: 'Waiting for invoices',
+            },
+            TASK.updates[1],
+          ],
+        },
+      },
+    });
+    await details();
+
+    const section = within(screen.getByRole('region', { name: 'Details' }));
+    expect(section.getByText('Priya (Team Lead)')).toBeInTheDocument();
+    expect(section.getByText('Billing module')).toBeInTheDocument();
+    expect(section.getByText('High')).toBeInTheDocument();
+    expect(section.getByText('3 h 45 min')).toBeInTheDocument();
+    expect(screen.getByText('High priority')).toHaveClass('priority--high');
+
+    const updates = within(screen.getByRole('region', { name: 'Daily entries' }));
+    const first = within(updates.getAllByRole('listitem')[0]!);
+    expect(first.getByText('Hours worked').nextElementSibling).toHaveTextContent('3 h 45 min');
+    expect(first.getByText('Start time').nextElementSibling).not.toHaveTextContent('—');
+    // Fields without a value are still listed, so it is clear what can be filled in.
+    const second = within(updates.getAllByRole('listitem')[1]!);
+    expect(second.getByText('Remarks / blockers').nextElementSibling).toHaveTextContent('—');
+    expect(second.getByText('Work done').nextElementSibling).toHaveTextContent(
+      'Collected invoices.',
+    );
+    expect(updates.getByText('Waiting for invoices')).toBeInTheDocument();
+  });
+
+  it('flags a task that is past its due date and not completed', async () => {
+    renderDetail({
+      'GET /tasks/task-1': { body: { ...TASK, status: 'IN_PROGRESS', dueDate: '2020-01-10' } },
+    });
+
+    expect((await details()).getByText('Overdue')).toBeInTheDocument();
+  });
+
+  it('sends only the task details that changed', async () => {
+    const { requests } = renderDetail({
+      'PATCH /tasks/task-1': { body: { task: TASK, excelSync: SYNCED } },
+      'PATCH /tasks/task-1/updates/upd-2': {
+        body: { task: TASK, update: TASK.updates[0], excelSync: SYNCED },
+      },
+    });
+    await details();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const form = within(screen.getByRole('form', { name: 'Edit task' }));
+    fireEvent.change(form.getByLabelText('Assigned By'), { target: { value: 'Priya' } });
+    fireEvent.change(form.getByLabelText('Priority'), { target: { value: 'Medium' } });
+    fireEvent.click(form.getByRole('button', { name: 'Save changes' }));
+
+    await screen.findByText(/Task #12 was updated/);
+    const patches = requests.filter((r) => r.method === 'PATCH');
+    expect(patches.map((r) => [r.path, r.body])).toEqual([
+      [
+        '/tasks/task-1',
+        { name: 'Prepare GST report', assignedBy: 'Priya', priority: 'MEDIUM', version: 4 },
+      ],
+    ]);
   });
 
   it('deletes after confirmation and returns to the list', async () => {

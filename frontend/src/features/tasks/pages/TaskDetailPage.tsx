@@ -5,34 +5,60 @@ import { FormAlert } from '../../../components/form/FormAlert';
 import { SelectField } from '../../../components/form/SelectField';
 import { TextAreaField } from '../../../components/form/TextAreaField';
 import { TextField } from '../../../components/form/TextField';
+import { TimeField } from '../../../components/form/TimeField';
+import { PencilIcon } from '../../../components/icons';
 import { Modal } from '../../../components/Modal';
 import { ApiError, errorMessage } from '../../../lib/api/api-error';
 import { useFormErrors } from '../../auth/use-form-errors';
 import { StatusBadge } from '../components/StatusBadge';
 import { describeHistory } from '../task-history';
-import { TASK_STATUSES } from '../task-status';
-import type { ExcelSync, TaskDetail, TaskStatus, TaskUpdate } from '../task.types';
+import { priorityLabel, TASK_PRIORITIES, TASK_STATUSES } from '../task-status';
+import type { ExcelSync, TaskDetail, TaskDetails, TaskStatus, TaskUpdate } from '../task.types';
 import { tasksApi } from '../tasks.api';
 import {
+  checkWorkingHours,
   descriptionSchema,
+  formatMinutes,
   formatTaskDate,
+  formatClock,
   referenceSchema,
+  taskDetailFields,
   taskNameSchema,
+  todayLocal,
+  toTaskDetails,
+  toWorkDetails,
+  workDetailFields,
 } from '../tasks.schemas';
 
 const STATUS_LABELS = TASK_STATUSES.map((status) => status.label);
 const labelToStatus = (label: string) => TASK_STATUSES.find((s) => s.label === label)?.value;
 const statusToLabel = (status: TaskStatus) =>
   TASK_STATUSES.find((s) => s.value === status)?.label ?? '';
+const PRIORITY_LABELS = TASK_PRIORITIES.map((priority) => priority.label);
 
 const CONFLICT_CODES = ['TASK_VERSION_CONFLICT', 'TASK_UPDATE_VERSION_CONFLICT'];
 
-const editSchema = z.object({
-  name: taskNameSchema,
+const entryFields = {
   description: descriptionSchema,
   reference: referenceSchema,
   status: z.string().min(1, 'Choose a status'),
-});
+  ...workDetailFields,
+};
+
+/** One dated entry. */
+const entrySchema = z.object(entryFields).superRefine(checkWorkingHours);
+
+/** The task itself: its name and details. */
+const editSchema = z.object({ name: taskNameSchema, ...taskDetailFields });
+
+const NONE = <span className="muted">—</span>;
+
+/** "Saturday" for a calendar date "YYYY-MM-DD". */
+const weekday = (isoDate: string) =>
+  new Date(`${isoDate}T00:00:00Z`).toLocaleDateString(undefined, {
+    weekday: 'long',
+    timeZone: 'UTC',
+  });
 
 type LoadState =
   | { status: 'loading' }
@@ -119,7 +145,7 @@ export function TaskDetailPage() {
 
   if (state.status === 'loading') {
     return (
-      <div className="app app--wide">
+      <div className="app app--task">
         <p className="muted" role="status">
           Loading task…
         </p>
@@ -128,7 +154,7 @@ export function TaskDetailPage() {
   }
   if (state.status === 'not-found') {
     return (
-      <div className="app app--wide">
+      <div className="app app--task">
         <div className="card empty-state" role="status">
           <h1>Task not found</h1>
           <p className="muted">It may have been deleted, or it belongs to another account.</p>
@@ -141,7 +167,7 @@ export function TaskDetailPage() {
   }
   if (state.status === 'error') {
     return (
-      <div className="app app--wide">
+      <div className="app app--task">
         <FormAlert variant="error">
           {state.message}{' '}
           <button type="button" className="button button--subtle" onClick={reload}>
@@ -153,35 +179,35 @@ export function TaskDetailPage() {
   }
 
   const { task } = state;
-  const latest = task.updates[0];
+  const minutesRecorded = task.updates.reduce((sum, u) => sum + (u.minutesWorked ?? 0), 0);
+  const overdue =
+    task.dueDate !== null && task.status !== 'COMPLETED' && task.dueDate < todayLocal();
 
   return (
-    <div className="app app--wide">
+    <div className="app app--task">
       <nav className="breadcrumb" aria-label="Breadcrumb">
-        <Link to="/tasks">← All tasks</Link>
+        <Link to="/tasks">Tasks</Link>
+        <span aria-hidden="true">/</span>
+        <span className="task-number">#{task.taskNumber}</span>
       </nav>
 
       <header className="app-header app-header--bar task-header">
-        <div>
-          <p className="task-number task-number--large">#{task.taskNumber}</p>
+        <div className="task-header-text">
           <h1>{task.name}</h1>
-          <p className="muted">
-            <StatusBadge status={task.status} /> · {task.workbook.name} ·{' '}
-            {task.entryCount === 1 ? '1 entry' : `${task.entryCount} entries`}
+          <p className="task-meta">
+            <StatusBadge status={task.status} />
+            {task.priority && (
+              <span className={`priority priority--${task.priority.toLowerCase()}`}>
+                {priorityLabel(task.priority)} priority
+              </span>
+            )}
+            <span>
+              {task.workbook.name} ·{' '}
+              {task.entryCount === 1 ? '1 entry' : `${task.entryCount} entries`}
+            </span>
           </p>
         </div>
         <div className="header-actions">
-          <button
-            type="button"
-            className="button"
-            onClick={() => {
-              setMessage(null);
-              setMode('edit');
-            }}
-            disabled={mode === 'edit'}
-          >
-            Edit
-          </button>
           <button
             type="button"
             className="button"
@@ -204,116 +230,195 @@ export function TaskDetailPage() {
         </div>
       </header>
 
-      <main className="app-main">
-        {message && <FormAlert variant={message.variant}>{message.text}</FormAlert>}
+      <div className="task-layout">
+        <main className="task-main">
+          {message && <FormAlert variant={message.variant}>{message.text}</FormAlert>}
 
-        {mode === 'edit' && latest ? (
-          <EditTaskForm
-            task={task}
-            latest={latest}
-            onCancel={() => setMode('view')}
-            onSaved={afterChange}
-            onConflict={onConflict}
-          />
-        ) : (
-          <section className="card" aria-labelledby="details-heading">
-            <h2 id="details-heading">Details</h2>
-            <dl className="details task-details">
-              <dt>Task number</dt>
-              <dd>#{task.taskNumber}</dd>
-              <dt>Task name</dt>
-              <dd>{task.name}</dd>
-              <dt>Task date</dt>
-              <dd>{formatTaskDate(task.lastEntryDate)}</dd>
-              <dt>Status</dt>
-              <dd>
-                <StatusBadge status={task.status} />
-              </dd>
-              <dt>Description</dt>
-              <dd className="preserve-lines">{latest?.description}</dd>
-              <dt>Documentation reference</dt>
-              <dd>
-                <Reference value={latest?.reference ?? null} />
-              </dd>
-              <dt>Workbook</dt>
-              <dd>
-                <Link to="/workbooks">{task.workbook.name}</Link>
-              </dd>
-              <dt>Created</dt>
-              <dd>{new Date(task.createdAt).toLocaleString()}</dd>
-            </dl>
-          </section>
-        )}
-
-        <section className="card" aria-labelledby="updates-heading">
-          <h2 id="updates-heading">Task updates</h2>
-          <p className="muted">One entry per day; each is a row in the Excel workbook.</p>
-          <ol className="update-list">
-            {task.updates.map((update) => (
-              <li key={update.id} className="update-item">
-                {editingUpdateId === update.id ? (
-                  <EditUpdateForm
-                    update={update}
-                    onCancel={() => setEditingUpdateId(null)}
-                    onSaved={afterChange}
-                    onConflict={onConflict}
-                  />
-                ) : (
-                  <>
-                    <div className="update-item-header">
-                      <strong>{formatTaskDate(update.entryDate)}</strong>
-                      <StatusBadge status={update.status} />
-                      <button
-                        type="button"
-                        className="button button--subtle"
-                        aria-label={`Edit entry from ${formatTaskDate(update.entryDate)}`}
-                        onClick={() => {
-                          setMessage(null);
-                          setEditingUpdateId(update.id);
-                        }}
-                      >
-                        Edit
-                      </button>
-                    </div>
-                    <p className="preserve-lines">{update.description}</p>
-                    {update.reference && (
-                      <p className="muted">
-                        Reference: <Reference value={update.reference} />
-                      </p>
-                    )}
-                  </>
-                )}
-              </li>
-            ))}
-          </ol>
-        </section>
-
-        {showHistory && (
-          <section className="card" id="task-history" aria-labelledby="history-heading">
-            <h2 id="history-heading">History</h2>
-            <ol className="history-list">
-              {[...task.history].reverse().map((entry) => {
-                const { title, details } = describeHistory(entry);
-                return (
-                  <li key={entry.id} className="history-item">
-                    <time dateTime={entry.createdAt} className="muted">
-                      {new Date(entry.createdAt).toLocaleString()}
-                    </time>
-                    <strong>{title}</strong>
-                    {details.length > 0 && (
-                      <ul>
-                        {details.map((detail) => (
-                          <li key={detail}>{detail}</li>
-                        ))}
-                      </ul>
-                    )}
-                  </li>
-                );
-              })}
+          <section className="card" aria-labelledby="updates-heading">
+            <div className="card-header">
+              <div>
+                <h2 id="updates-heading">Daily entries</h2>
+                <p className="muted">
+                  One entry per day, newest first. Each one is a row in the Excel workbook.
+                </p>
+              </div>
+              <span className="entry-count">
+                {task.entryCount === 1 ? '1 entry' : `${task.entryCount} entries`}
+              </span>
+            </div>
+            <ol className="update-list">
+              {task.updates.map((update, index) => (
+                <li key={update.id} className="update-item">
+                  {editingUpdateId === update.id ? (
+                    <EditUpdateForm
+                      update={update}
+                      onCancel={() => setEditingUpdateId(null)}
+                      onSaved={afterChange}
+                      onConflict={onConflict}
+                    />
+                  ) : (
+                    <>
+                      <div className="update-item-header">
+                        <div className="update-date">
+                          <span className="update-weekday">{weekday(update.entryDate)}</span>
+                          <strong>{formatTaskDate(update.entryDate)}</strong>
+                        </div>
+                        <StatusBadge status={update.status} />
+                        {index === 0 && task.updates.length > 1 && (
+                          <span className="update-latest">Latest</span>
+                        )}
+                        <button
+                          type="button"
+                          className="button update-edit"
+                          aria-label={`Edit entry from ${formatTaskDate(update.entryDate)}`}
+                          onClick={() => {
+                            setMessage(null);
+                            setEditingUpdateId(update.id);
+                          }}
+                        >
+                          <PencilIcon /> Edit
+                        </button>
+                      </div>
+                      {/* Every field of the entry, labelled; the Edit button changes all of them. */}
+                      <dl className="entry-facts">
+                        <div>
+                          <dt>Start time</dt>
+                          <dd>{update.startTime ? formatClock(update.startTime) : NONE}</dd>
+                        </div>
+                        <div>
+                          <dt>End time</dt>
+                          <dd>{update.endTime ? formatClock(update.endTime) : NONE}</dd>
+                        </div>
+                        <div>
+                          <dt>Hours worked</dt>
+                          <dd>
+                            {update.minutesWorked !== null
+                              ? formatMinutes(update.minutesWorked)
+                              : NONE}
+                          </dd>
+                        </div>
+                        <div className="entry-fact--wide">
+                          <dt>Work done</dt>
+                          <dd className="preserve-lines">{update.description}</dd>
+                        </div>
+                        <div className="entry-fact--wide">
+                          <dt>Remarks / blockers</dt>
+                          <dd className="preserve-lines">{update.remarks ?? NONE}</dd>
+                        </div>
+                        <div className="entry-fact--wide">
+                          <dt>Documentation link / reference</dt>
+                          <dd>
+                            {update.reference ? <Reference value={update.reference} /> : NONE}
+                          </dd>
+                        </div>
+                      </dl>
+                    </>
+                  )}
+                </li>
+              ))}
             </ol>
           </section>
-        )}
-      </main>
+
+          {showHistory && (
+            <section className="card" id="task-history" aria-labelledby="history-heading">
+              <h2 id="history-heading">History</h2>
+              <ol className="history-list">
+                {[...task.history].reverse().map((entry) => {
+                  const { title, details } = describeHistory(entry);
+                  return (
+                    <li key={entry.id} className="history-item">
+                      <time dateTime={entry.createdAt} className="muted">
+                        {new Date(entry.createdAt).toLocaleString()}
+                      </time>
+                      <strong>{title}</strong>
+                      {details.length > 0 && (
+                        <ul>
+                          {details.map((detail) => (
+                            <li key={detail}>{detail}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
+          )}
+        </main>
+
+        <aside className="task-side">
+          <section className="card" aria-labelledby="details-heading">
+            <div className="card-header task-side-header">
+              <h2 id="details-heading">Details</h2>
+              {mode === 'view' && (
+                <button
+                  type="button"
+                  className="button task-edit"
+                  onClick={() => {
+                    setMessage(null);
+                    setMode('edit');
+                  }}
+                >
+                  <PencilIcon /> Edit
+                </button>
+              )}
+            </div>
+            {mode === 'edit' ? (
+              <EditTaskForm
+                task={task}
+                onCancel={() => setMode('view')}
+                onSaved={afterChange}
+                onConflict={onConflict}
+              />
+            ) : (
+              <dl className="task-facts">
+                <div>
+                  <dt>Project / module</dt>
+                  <dd>{task.project ?? NONE}</dd>
+                </div>
+                <div>
+                  <dt>Assigned by</dt>
+                  <dd>{task.assignedBy ?? NONE}</dd>
+                </div>
+                <div>
+                  <dt>Priority</dt>
+                  <dd>{task.priority ? priorityLabel(task.priority) : NONE}</dd>
+                </div>
+                <div>
+                  <dt>Due date</dt>
+                  <dd>
+                    {task.dueDate ? formatTaskDate(task.dueDate) : NONE}
+                    {overdue && <span className="task-overdue">Overdue</span>}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Time recorded</dt>
+                  <dd>{minutesRecorded > 0 ? formatMinutes(minutesRecorded) : NONE}</dd>
+                </div>
+                <div>
+                  <dt>Last entry</dt>
+                  <dd>{formatTaskDate(task.lastEntryDate)}</dd>
+                </div>
+                <div>
+                  <dt>Workbook</dt>
+                  <dd>
+                    <Link to="/workbooks">{task.workbook.name}</Link>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Created</dt>
+                  <dd>
+                    {new Date(task.createdAt).toLocaleString(undefined, {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                    })}
+                  </dd>
+                </div>
+              </dl>
+            )}
+          </section>
+        </aside>
+      </div>
 
       {confirmDelete && (
         <DeleteTaskDialog
@@ -340,19 +445,22 @@ export function TaskDetailPage() {
 
 interface EditTaskFormProps {
   task: TaskDetail;
-  latest: TaskUpdate;
   onCancel: () => void;
   onSaved: (message: string) => void;
   onConflict: (error: unknown) => boolean;
 }
 
-/** "Edit": the task name and its latest dated entry. */
-function EditTaskForm({ task, latest, onCancel, onSaved, onConflict }: EditTaskFormProps) {
+/**
+ * Edits what the Details card shows: the task name, project, who assigned it, priority and
+ * due date. Daily entries have their own Edit buttons.
+ */
+function EditTaskForm({ task, onCancel, onSaved, onConflict }: EditTaskFormProps) {
   const [values, setValues] = useState({
     name: task.name,
-    description: latest.description,
-    reference: latest.reference ?? '',
-    status: statusToLabel(latest.status),
+    project: task.project ?? '',
+    assignedBy: task.assignedBy ?? '',
+    priority: task.priority ?? '',
+    dueDate: task.dueDate ?? '',
   });
   const [saving, setSaving] = useState(false);
   const { fieldErrors, formError, validate, handleError, clearFieldError } = useFormErrors();
@@ -368,29 +476,22 @@ function EditTaskForm({ task, latest, onCancel, onSaved, onConflict }: EditTaskF
     if (!parsed) {
       return;
     }
-    const status = labelToStatus(parsed.status) ?? latest.status;
-    const reference = parsed.reference === '' ? null : parsed.reference;
-    const nameChanged = parsed.name !== task.name;
-    const entryChanged =
-      parsed.description !== latest.description ||
-      reference !== latest.reference ||
-      status !== latest.status;
-    if (!nameChanged && !entryChanged) {
+    // Only the task details that changed are sent.
+    const details = toTaskDetails(parsed);
+    const changedDetails: Partial<TaskDetails> = {};
+    for (const field of ['project', 'assignedBy', 'priority', 'dueDate'] as const) {
+      if (details[field] !== task[field]) {
+        Object.assign(changedDetails, { [field]: details[field] });
+      }
+    }
+    if (parsed.name === task.name && Object.keys(changedDetails).length === 0) {
       onCancel();
       return;
     }
     setSaving(true);
     try {
-      let sync: ExcelSync | undefined;
-      if (nameChanged) {
-        sync = (await tasksApi.rename(task, parsed.name)).excelSync;
-      }
-      if (entryChanged) {
-        sync = (
-          await tasksApi.editUpdate(latest, { description: parsed.description, reference, status })
-        ).excelSync;
-      }
-      onSaved(`Task #${task.taskNumber} was updated. ${sync ? syncMessage(sync) : ''}`.trim());
+      const { excelSync } = await tasksApi.rename(task, parsed.name, changedDetails);
+      onSaved(`Task #${task.taskNumber} was updated. ${syncMessage(excelSync)}`.trim());
     } catch (error) {
       if (!onConflict(error)) {
         handleError(error);
@@ -401,55 +502,56 @@ function EditTaskForm({ task, latest, onCancel, onSaved, onConflict }: EditTaskF
 
   return (
     <form
-      className="card form form--grid"
+      className="form task-details-form"
       onSubmit={(event) => void onSubmit(event)}
       noValidate
-      aria-labelledby="edit-heading"
+      aria-label="Edit task"
     >
-      <h2 id="edit-heading" className="field--wide">
-        Edit task
-      </h2>
       {formError && <FormAlert variant="error">{formError}</FormAlert>}
-      <div className="field--wide">
-        <TextField
-          label="Task Name"
-          name="name"
-          maxLength={200}
-          value={values.name}
-          onChange={update('name')}
-          error={fieldErrors.name}
-        />
-      </div>
-      <p className="field--wide muted edit-note">
-        Description, reference and status belong to the latest entry (
-        {formatTaskDate(latest.entryDate)}). Earlier entries can be edited under Task updates.
-      </p>
-      <div className="field--wide">
-        <TextAreaField
-          label="Task Description"
-          name="description"
-          rows={5}
-          maxLength={5000}
-          value={values.description}
-          onChange={update('description')}
-          error={fieldErrors.description}
-        />
-      </div>
       <TextField
-        label="Documentation Link / Reference"
-        name="reference"
-        maxLength={2000}
-        value={values.reference}
-        onChange={update('reference')}
-        error={fieldErrors.reference}
+        label="Task Name"
+        name="name"
+        maxLength={200}
+        value={values.name}
+        onChange={update('name')}
+        error={fieldErrors.name}
+      />
+      <TextField
+        label="Project / Module"
+        name="project"
+        maxLength={100}
+        value={values.project}
+        onChange={update('project')}
+        error={fieldErrors.project}
+      />
+      <TextField
+        label="Assigned By"
+        name="assignedBy"
+        maxLength={100}
+        value={values.assignedBy}
+        onChange={update('assignedBy')}
+        error={fieldErrors.assignedBy}
       />
       <SelectField
-        label="Task Status"
-        name="status"
-        options={STATUS_LABELS}
-        value={values.status}
-        onChange={update('status')}
-        error={fieldErrors.status}
+        label="Priority"
+        name="priority"
+        options={PRIORITY_LABELS}
+        placeholder="Not set"
+        value={TASK_PRIORITIES.find((p) => p.value === values.priority)?.label ?? ''}
+        onChange={(event) => {
+          const priority = TASK_PRIORITIES.find((p) => p.label === event.target.value);
+          setValues((current) => ({ ...current, priority: priority?.value ?? '' }));
+          clearFieldError('priority');
+        }}
+        error={fieldErrors.priority}
+      />
+      <TextField
+        label="Due Date"
+        type="date"
+        name="dueDate"
+        value={values.dueDate}
+        onChange={update('dueDate')}
+        error={fieldErrors.dueDate}
       />
       <div className="form-actions">
         <button type="submit" className="button button--primary" disabled={saving}>
@@ -476,10 +578,12 @@ function EditUpdateForm({ update, onCancel, onSaved, onConflict }: EditUpdateFor
     description: update.description,
     reference: update.reference ?? '',
     status: statusToLabel(update.status),
+    startTime: update.startTime ?? '',
+    endTime: update.endTime ?? '',
+    remarks: update.remarks ?? '',
   });
   const [saving, setSaving] = useState(false);
   const { fieldErrors, formError, validate, handleError, clearFieldError } = useFormErrors();
-  const entrySchema = editSchema.omit({ name: true });
 
   const change = (field: keyof typeof values) => (event: { target: { value: string } }) => {
     setValues((current) => ({ ...current, [field]: event.target.value }));
@@ -498,6 +602,7 @@ function EditUpdateForm({ update, onCancel, onSaved, onConflict }: EditUpdateFor
         description: parsed.description,
         reference: parsed.reference === '' ? null : parsed.reference,
         status: labelToStatus(parsed.status) ?? update.status,
+        ...toWorkDetails(parsed),
       });
       onSaved(
         `The entry from ${formatTaskDate(update.entryDate)} was updated. ${syncMessage(result.excelSync)}`.trim(),
@@ -528,6 +633,31 @@ function EditUpdateForm({ update, onCancel, onSaved, onConflict }: EditUpdateFor
         value={values.description}
         onChange={change('description')}
         error={fieldErrors.description}
+      />
+      <div className="form-row-pair">
+        <TimeField
+          label="Start time"
+          name="startTime"
+          value={values.startTime}
+          onChange={change('startTime')}
+          error={fieldErrors.startTime}
+        />
+        <TimeField
+          label="End time"
+          name="endTime"
+          value={values.endTime}
+          onChange={change('endTime')}
+          error={fieldErrors.endTime}
+        />
+      </div>
+      <TextAreaField
+        label="Remarks"
+        name="remarks"
+        rows={2}
+        maxLength={2000}
+        value={values.remarks}
+        onChange={change('remarks')}
+        error={fieldErrors.remarks}
       />
       <TextField
         label="Reference"

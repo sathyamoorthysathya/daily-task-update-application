@@ -184,38 +184,55 @@ enum TaskStatus {
   @@map("task_status")
 }
 
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+
+  @@map("task_priority")
+}
+
 enum TaskHistoryAction {
   TASK_CREATED
   ENTRY_ADDED
   ENTRY_UPDATED
   TASK_RENAMED
   TASK_DELETED
+  /// Task details changed (assigned by, priority, project, due date), possibly with the name.
+  TASK_UPDATED
 
   @@map("task_history_action")
 }
 
 /// Master record of a task, unique per workbook by (case- and space-insensitive) name.
 model Task {
-  id            String     @id @default(uuid(7)) @db.Uuid
-  userId        String     @map("user_id") @db.Uuid
-  workbookId    String     @map("workbook_id") @db.Uuid
+  id            String        @id @default(uuid(7)) @db.Uuid
+  userId        String        @map("user_id") @db.Uuid
+  workbookId    String        @map("workbook_id") @db.Uuid
   /// Sequential per workbook, assigned on creation and never reused.
-  taskNumber    Int        @map("task_number")
-  name          String     @db.VarChar(200)
+  taskNumber    Int           @map("task_number")
+  name          String        @db.VarChar(200)
   /// Normalised name (trimmed, single spaces, lower case) used for duplicate detection and
   /// search. NULL once the task is deleted, which frees the name for a new task.
-  nameKey       String?    @map("name_key") @db.VarChar(200)
+  nameKey       String?       @map("name_key") @db.VarChar(200)
   /// Status of the most recent dated update.
   status        TaskStatus
-  lastEntryDate DateTime   @map("last_entry_date") @db.Date
-  entryCount    Int        @default(1) @map("entry_count")
+  lastEntryDate DateTime      @map("last_entry_date") @db.Date
+  entryCount    Int           @default(1) @map("entry_count")
+  /// Who gave the task (manager, team lead, client...).
+  assignedBy    String?       @map("assigned_by") @db.VarChar(100)
+  priority      TaskPriority?
+  /// Project or module the task belongs to.
+  project       String?       @db.VarChar(100)
+  /// Deadline given for the task.
+  dueDate       DateTime?     @map("due_date") @db.Date
   /// Optimistic-concurrency version, incremented on every change to the task or its updates.
-  version       Int        @default(1)
+  version       Int           @default(1)
   /// Soft delete: the task, its updates and its history are kept for auditing but hidden
   /// everywhere (lists, duplicate detection, Excel).
-  deletedAt     DateTime?  @map("deleted_at") @db.Timestamptz(3)
-  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt     DateTime?     @map("deleted_at") @db.Timestamptz(3)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   workbook Workbook       @relation(fields: [workbookId], references: [id], onDelete: Cascade)
@@ -241,6 +258,11 @@ model TaskUpdate {
   status      TaskStatus
   description String     @db.VarChar(5000)
   reference   String?    @db.VarChar(2000)
+  /// Working hours of the day, wall-clock "HH:MM" (CHECK constraints in the migration).
+  startTime   String?    @map("start_time") @db.VarChar(5)
+  endTime     String?    @map("end_time") @db.VarChar(5)
+  /// Blockers, problems or notes for the manager.
+  remarks     String?    @db.VarChar(2000)
   /// Optimistic-concurrency version, incremented on every edit.
   version     Int        @default(1)
   createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)

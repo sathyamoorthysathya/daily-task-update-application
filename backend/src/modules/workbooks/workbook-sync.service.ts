@@ -58,7 +58,20 @@ export class WorkbookSyncService {
           status: true,
           description: true,
           reference: true,
-          task: { select: { id: true, taskNumber: true, name: true } },
+          startTime: true,
+          endTime: true,
+          remarks: true,
+          task: {
+            select: {
+              id: true,
+              taskNumber: true,
+              name: true,
+              project: true,
+              assignedBy: true,
+              priority: true,
+              dueDate: true,
+            },
+          },
         },
         orderBy: [{ entryDate: 'asc' }, { task: { taskNumber: 'asc' } }, { createdAt: 'asc' }],
       });
@@ -74,6 +87,13 @@ export class WorkbookSyncService {
           description: update.description,
           reference: update.reference,
           status: update.status,
+          project: update.task.project,
+          assignedBy: update.task.assignedBy,
+          priority: update.task.priority,
+          dueDate: update.task.dueDate,
+          startTime: update.startTime,
+          endTime: update.endTime,
+          remarks: update.remarks,
         })),
       );
       const stored = await this.storage.write(workbook.storageKey, file);

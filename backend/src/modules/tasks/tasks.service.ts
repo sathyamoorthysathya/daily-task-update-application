@@ -16,6 +16,8 @@ import {
   type TaskUpdate,
 } from '../../generated/prisma/client.js';
 import { TASK_STATUS_VALUES } from './task-status.js';
+import { buildReportPdf } from './report-pdf.js';
+import { buildReportWorkbook, reportFileName, reportPeriodLabel } from './report-workbook.js';
 import { ExcelSyncQueue } from '../workbooks/sync/excel-sync-queue.service.js';
 import { ExcelSyncWorker } from '../workbooks/sync/excel-sync.worker.js';
 import type {
@@ -30,6 +32,7 @@ import type {
   TaskLookupDto,
   TaskMatchDto,
   TaskPageDto,
+  TaskReportDto,
   TaskSummaryDto,
   TaskUpdateDto,
 } from './dto/task.dto.js';
@@ -43,6 +46,8 @@ import {
   type LookupTaskQuery,
   parseCalendarDate,
   type RenameTaskInput,
+  type ReportDownloadQuery,
+  type TaskReportQuery,
   type TaskSummaryQuery,
   taskNameKey,
 } from './tasks.schemas.js';
@@ -84,10 +89,24 @@ function toTaskDto(task: Task): TaskDto {
     status: task.status,
     lastEntryDate: formatCalendarDate(task.lastEntryDate),
     entryCount: task.entryCount,
+    assignedBy: task.assignedBy,
+    priority: task.priority,
+    project: task.project,
+    dueDate: task.dueDate ? formatCalendarDate(task.dueDate) : null,
     version: task.version,
     createdAt: task.createdAt.toISOString(),
   };
 }
+
+const toMinutes = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+
+/** Minutes between a start and an end time ("HH:MM"); null unless both are set. */
+export function minutesBetween(startTime: string | null, endTime: string | null): number | null {
+  return startTime && endTime ? toMinutes(endTime) - toMinutes(startTime) : null;
+}
+
+/** Most entries a work report returns. */
+const REPORT_ENTRY_LIMIT = 2000;
 
 function toUpdateDto(update: TaskUpdate): TaskUpdateDto {
   return {
@@ -97,6 +116,10 @@ function toUpdateDto(update: TaskUpdate): TaskUpdateDto {
     status: update.status,
     description: update.description,
     reference: update.reference,
+    startTime: update.startTime,
+    endTime: update.endTime,
+    minutesWorked: minutesBetween(update.startTime, update.endTime),
+    remarks: update.remarks,
     version: update.version,
     createdAt: update.createdAt.toISOString(),
     updatedAt: update.updatedAt.toISOString(),
@@ -243,6 +266,10 @@ export class TasksService {
             nameKey,
             status: input.status,
             lastEntryDate: entryDate,
+            assignedBy: input.assignedBy,
+            priority: input.priority,
+            project: input.project,
+            dueDate: input.dueDate ? parseCalendarDate(input.dueDate) : null,
           },
         });
         const update = await tx.taskUpdate.create({
@@ -253,6 +280,9 @@ export class TasksService {
             status: input.status,
             description: input.description,
             reference: input.reference,
+            startTime: input.startTime,
+            endTime: input.endTime,
+            remarks: input.remarks,
           },
         });
         await tx.taskHistory.create({
@@ -265,10 +295,17 @@ export class TasksService {
               taskNumber: task.taskNumber,
               name: task.name,
               workbookId: workbook.id,
+              assignedBy: input.assignedBy,
+              priority: input.priority,
+              project: input.project,
+              dueDate: input.dueDate,
               entryDate: input.entryDate,
               status: input.status,
               description: input.description,
               reference: input.reference,
+              startTime: input.startTime,
+              endTime: input.endTime,
+              remarks: input.remarks,
             },
           },
         });
@@ -317,6 +354,9 @@ export class TasksService {
             status: input.status,
             description: input.description,
             reference: input.reference,
+            startTime: input.startTime,
+            endTime: input.endTime,
+            remarks: input.remarks,
           },
         });
         await tx.taskHistory.create({
@@ -330,6 +370,9 @@ export class TasksService {
               status: input.status,
               description: input.description,
               reference: input.reference,
+              startTime: input.startTime,
+              endTime: input.endTime,
+              remarks: input.remarks,
             },
           },
         });
@@ -353,7 +396,8 @@ export class TasksService {
   }
 
   /**
-   * "Update Existing Task": edits one dated update (status, description, reference).
+   * "Update Existing Task": edits one dated update (status, description, reference, working
+   * hours, remarks).
    * Requires the version the client saw; the previous values are kept in task_history.
    */
   async editUpdate(
@@ -394,6 +438,9 @@ export class TasksService {
           status: input.status,
           description: input.description,
           reference: input.reference,
+          startTime: input.startTime,
+          endTime: input.endTime,
+          remarks: input.remarks,
           version: { increment: 1 },
         },
       });
@@ -481,7 +528,7 @@ export class TasksService {
           updates: {
             orderBy: latestFirst,
             take: 1,
-            select: { description: true, reference: true },
+            select: { description: true, reference: true, updatedAt: true },
           },
         },
       }),
@@ -493,6 +540,12 @@ export class TasksService {
         workbook: task.workbook,
         latestDescription: task.updates[0]?.description ?? '',
         latestReference: task.updates[0]?.reference ?? null,
+        updatedAt: task.updatedAt.toISOString(),
+        lastEntryAt: (task.updates[0]?.updatedAt ?? task.updatedAt).toISOString(),
+        completedAt:
+          task.status === 'COMPLETED'
+            ? (task.updates[0]?.updatedAt ?? task.updatedAt).toISOString()
+            : null,
       })),
       page: query.page,
       pageSize: query.pageSize,
@@ -501,7 +554,10 @@ export class TasksService {
     };
   }
 
-  /** Renames a task (unique per workbook); the Excel rows follow. */
+  /**
+   * Renames a task (unique per workbook) and/or changes its details (assigned by, priority,
+   * project, due date); the Excel rows follow. Details that are not sent stay as they are.
+   */
   async rename(
     userId: string,
     taskId: string,
@@ -511,9 +567,29 @@ export class TasksService {
     if (task.version !== input.version) {
       throw this.taskVersionConflict(task);
     }
-    if (task.name === input.name) {
+    const changes: Record<string, { from: string | null; to: string | null }> = {};
+    const data: Prisma.TaskUpdateManyMutationInput = {};
+    if (task.name !== input.name) {
+      changes.name = { from: task.name, to: input.name };
+      data.name = input.name;
+      data.nameKey = taskNameKey(input.name);
+    }
+    for (const field of ['assignedBy', 'priority', 'project'] as const) {
+      const next = input[field];
+      if (next !== undefined && next !== task[field]) {
+        changes[field] = { from: task[field], to: next };
+        Object.assign(data, { [field]: next });
+      }
+    }
+    const dueDate = task.dueDate ? formatCalendarDate(task.dueDate) : null;
+    if (input.dueDate !== undefined && input.dueDate !== dueDate) {
+      changes.dueDate = { from: dueDate, to: input.dueDate };
+      data.dueDate = input.dueDate ? parseCalendarDate(input.dueDate) : null;
+    }
+    if (Object.keys(changes).length === 0) {
       return { task: toTaskDto(task), excelSync: unchanged(task.workbookId) };
     }
+    const onlyRenamed = Object.keys(changes).length === 1 && 'name' in changes;
 
     let renamed: { task: Task; jobId: string };
     try {
@@ -525,7 +601,7 @@ export class TasksService {
         });
         const { count } = await tx.task.updateMany({
           where: { id: task.id, userId, deletedAt: null, version: input.version },
-          data: { name: input.name, nameKey: taskNameKey(input.name), version: { increment: 1 } },
+          data: { ...data, version: { increment: 1 } },
         });
         if (count === 0) {
           throw await this.taskChangedOrGone(tx, userId, task.id);
@@ -534,8 +610,8 @@ export class TasksService {
           data: {
             taskId: task.id,
             userId,
-            action: 'TASK_RENAMED',
-            changes: { name: { from: task.name, to: input.name } },
+            action: onlyRenamed ? 'TASK_RENAMED' : 'TASK_UPDATED',
+            changes,
           },
         });
         const jobId = await this.enqueueFor(tx, task, 'TASK_RENAMED', dataVersion);
@@ -705,6 +781,92 @@ export class TasksService {
         };
       }),
     };
+  }
+
+  /**
+   * Work report: every daily entry dated in [from, to] (oldest first) with its task, and the
+   * totals of the period. Without bounds it covers all of the user's work.
+   */
+  async report(userId: string, query: TaskReportQuery): Promise<TaskReportDto> {
+    if (query.workbookId) {
+      await this.resolveWorkbook(userId, query.workbookId);
+    }
+    const found = await this.prisma.taskUpdate.findMany({
+      where: {
+        userId,
+        task: { deletedAt: null, ...(query.workbookId ? { workbookId: query.workbookId } : {}) },
+        ...(query.from || query.to
+          ? {
+              entryDate: {
+                ...(query.from ? { gte: parseCalendarDate(query.from) } : {}),
+                ...(query.to ? { lte: parseCalendarDate(query.to) } : {}),
+              },
+            }
+          : {}),
+      },
+      include: { task: { include: { workbook: { select: { name: true } } } } },
+      orderBy: [{ entryDate: 'asc' }, { task: { taskNumber: 'asc' } }, { createdAt: 'asc' }],
+      take: REPORT_ENTRY_LIMIT + 1,
+    });
+    const updates = found.slice(0, REPORT_ENTRY_LIMIT);
+
+    const tasks = new Map<string, Task>();
+    const days = new Set<string>();
+    let minutesWorked = 0;
+    let entriesWithoutTime = 0;
+    for (const update of updates) {
+      tasks.set(update.taskId, update.task);
+      days.add(formatCalendarDate(update.entryDate));
+      const minutes = minutesBetween(update.startTime, update.endTime);
+      if (minutes === null) {
+        entriesWithoutTime += 1;
+      } else {
+        minutesWorked += minutes;
+      }
+    }
+
+    return {
+      from: query.from ?? null,
+      to: query.to ?? null,
+      totals: {
+        entries: updates.length,
+        tasks: tasks.size,
+        completedTasks: [...tasks.values()].filter((task) => task.status === 'COMPLETED').length,
+        daysWorked: days.size,
+        minutesWorked,
+        entriesWithoutTime,
+      },
+      entries: updates.map((update) => ({
+        ...toUpdateDto(update),
+        task: toTaskDto(update.task),
+        workbookName: update.task.workbook.name,
+      })),
+      truncated: found.length > REPORT_ENTRY_LIMIT,
+    };
+  }
+
+  /**
+   * The work report as an Excel or PDF file, with the name to download it under (without the
+   * extension).
+   */
+  async exportReport(
+    userId: string,
+    { format, ...query }: ReportDownloadQuery,
+  ): Promise<{ data: Buffer; fileName: string }> {
+    const [report, user] = await Promise.all([
+      this.report(userId, query),
+      this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true } }),
+    ]);
+    const info = {
+      userName: user.name,
+      periodLabel: reportPeriodLabel(report.from, report.to),
+      generatedAt: new Date(),
+    };
+    const data =
+      format === 'pdf'
+        ? await buildReportPdf(report, info)
+        : await buildReportWorkbook(report, info);
+    return { data, fileName: reportFileName(report.from, report.to) };
   }
 
   async listRecent(userId: string, query: ListTaskUpdatesQuery): Promise<RecentTaskUpdatesDto> {
@@ -884,7 +1046,14 @@ export class TasksService {
 
   private diff(current: TaskUpdate, input: EditTaskUpdateInput) {
     const changes: Record<string, { from: string | null; to: string | null }> = {};
-    for (const field of ['status', 'description', 'reference'] as const) {
+    for (const field of [
+      'status',
+      'description',
+      'reference',
+      'startTime',
+      'endTime',
+      'remarks',
+    ] as const) {
       if (current[field] !== input[field]) {
         changes[field] = { from: current[field], to: input[field] };
       }

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '../../app/routes';
-import { listOf, makeWorkbook } from '../../test/fixtures';
+import { listOf, makeWorkbook, NO_TASK_DETAILS } from '../../test/fixtures';
 import {
   apiError,
   clearCookies,
@@ -26,11 +26,15 @@ function item(overrides: Partial<TaskListItem>): TaskListItem {
     status: 'IN_PROGRESS',
     lastEntryDate: '2026-11-05',
     entryCount: 1,
+    ...NO_TASK_DETAILS,
     version: 1,
     createdAt: '2026-11-05T09:00:00.000Z',
     workbook: { id: 'wb-main', name: 'Main' },
     latestDescription: 'Collected invoices',
     latestReference: null,
+    updatedAt: '2026-11-05T09:00:00.000Z',
+    lastEntryAt: '2026-11-05T09:00:00.000Z',
+    completedAt: null,
     ...overrides,
   };
 }
@@ -50,6 +54,11 @@ const TWO = page([
     entryCount: 3,
     workbook: { id: 'wb-apollo', name: 'Apollo' },
     latestDescription: 'Meeting notes shared',
+    latestReference: 'INV-204',
+    createdAt: '2026-10-30T09:00:00.000Z',
+    updatedAt: '2026-11-01T11:30:00.000Z',
+    lastEntryAt: '2026-11-01T11:30:00.000Z',
+    completedAt: '2026-11-01T11:30:00.000Z',
   }),
 ]);
 
@@ -101,6 +110,28 @@ describe('TasksPage', () => {
     expect(first.getByText('In Progress')).toHaveClass('task-status--in_progress');
     expect(within(rows[1]!).getByText('Completed')).toHaveClass('task-status--completed');
     expect(screen.getByText('Showing 1–2 of 2 tasks')).toBeInTheDocument();
+  });
+
+  it('shows when each task started and ended, how long it took, and its reference', async () => {
+    renderAt('/tasks', { 'GET /tasks': { body: TWO } });
+
+    const rows = (await table()).getAllByRole('row').slice(1);
+    const open = within(rows[0]!);
+    expect(open.getByText('Not finished')).toBeInTheDocument();
+    expect(open.getByText(/· 1 entry$/)).toBeInTheDocument();
+    expect(rows[0]!.querySelectorAll('time')).toHaveLength(2);
+    expect(rows[0]!.querySelector('time')).toHaveAttribute('datetime', '2026-11-05T09:00:00.000Z');
+
+    const done = within(rows[1]!);
+    const times = [...rows[1]!.querySelectorAll('time')].map((t) => t.getAttribute('datetime'));
+    expect(times).toEqual([
+      '2026-10-30T09:00:00.000Z',
+      '2026-11-01T11:30:00.000Z',
+      '2026-11-01T11:30:00.000Z',
+    ]);
+    expect(done.getByText(/2 d 2 h/)).toBeInTheDocument();
+    expect(done.getByText(/· 3 entries$/)).toBeInTheDocument();
+    expect(done.getByText('INV-204')).toBeInTheDocument();
   });
 
   it('shows a loading state, then the results', async () => {

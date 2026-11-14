@@ -506,6 +506,232 @@ describe('Daily task management (e2e)', () => {
     });
   });
 
+  describe('work details and the work report', () => {
+    const DETAILS = {
+      assignedBy: 'Priya (Team Lead)',
+      priority: 'HIGH',
+      project: 'Billing module',
+      dueDate: '2026-11-20',
+      startTime: '09:30',
+      endTime: '13:15',
+      remarks: 'Waiting for the October invoices',
+    };
+
+    it('saves the details with the task and its entries, and writes them to Excel', async () => {
+      const { client, workbookId } = await userWithWorkbook('details');
+
+      const created = (await createTask(client, DETAILS).expect(201)).body as SaveResult;
+      expect(created.task).toMatchObject({
+        assignedBy: 'Priya (Team Lead)',
+        priority: 'HIGH',
+        project: 'Billing module',
+        dueDate: '2026-11-20',
+      });
+      expect(created.update).toMatchObject({
+        startTime: '09:30',
+        endTime: '13:15',
+        minutesWorked: 225,
+        remarks: 'Waiting for the October invoices',
+      });
+
+      // A later day of the same task has its own hours and remarks.
+      await client
+        .post(`/api/tasks/${created.task.id}/updates`, {
+          entryDate: '2026-11-06',
+          description: 'Filed the return.',
+          status: 'COMPLETED',
+          startTime: '10:00',
+          endTime: '11:00',
+        })
+        .expect(201);
+
+      await drain();
+      const row = await prisma.workbook.findUniqueOrThrow({ where: { id: workbookId } });
+      const excel = new ExcelJS.Workbook();
+      await excel.xlsx.load(
+        (await readFile(path.join(storageRoot, row.storageKey))) as unknown as ArrayBuffer,
+      );
+      const sheet = excel.getWorksheet('Daily Tasks')!;
+      const cells = (rowNumber: number) =>
+        [9, 10, 11, 13, 14, 15, 16].map((column) => sheet.getRow(rowNumber).getCell(column).value);
+      expect(cells(2)).toEqual([
+        'Billing module',
+        'Priya (Team Lead)',
+        'High',
+        '09:30',
+        '13:15',
+        3.75,
+        'Waiting for the October invoices',
+      ]);
+      expect(sheet.getRow(2).getCell(12).value).toEqual(new Date('2026-11-20T00:00:00.000Z'));
+      expect(cells(3).slice(3)).toEqual(['10:00', '11:00', 1, '']);
+    });
+
+    it('rejects an end time that is not after the start time', async () => {
+      const { client } = await userWithWorkbook('details-bad');
+
+      const res = await createTask(client, { startTime: '13:00', endTime: '09:00' }).expect(400);
+      expect(JSON.stringify(res.body)).toContain('The end time must be after the start time');
+    });
+
+    it('edits the hours and remarks of an entry and records the change', async () => {
+      const { client } = await userWithWorkbook('details-edit');
+      const created = (await createTask(client, DETAILS).expect(201)).body as SaveResult;
+
+      const edited = (
+        await client
+          .patch(`/api/tasks/${created.task.id}/updates/${created.update.id}`, {
+            description: BASE_TASK.description,
+            reference: BASE_TASK.reference,
+            status: BASE_TASK.status,
+            startTime: '09:30',
+            endTime: '17:30',
+            remarks: null,
+            version: created.update.version,
+          })
+          .expect(200)
+      ).body as SaveResult;
+      expect(edited.update).toMatchObject({ endTime: '17:30', minutesWorked: 480, remarks: null });
+
+      const history = await prisma.taskHistory.findMany({
+        where: { taskId: created.task.id, action: 'ENTRY_UPDATED' },
+      });
+      expect(history).toHaveLength(1);
+      expect(history[0]!.changes).toMatchObject({
+        endTime: { from: '13:15', to: '17:30' },
+        remarks: { from: 'Waiting for the October invoices', to: null },
+      });
+    });
+
+    it('changes task details without touching the ones that are not sent', async () => {
+      const { client } = await userWithWorkbook('details-task');
+      const created = (await createTask(client, DETAILS).expect(201)).body as SaveResult;
+      const version = (
+        (await client.get(`/api/tasks/${created.task.id}`).expect(200)).body as { version: number }
+      ).version;
+
+      const res = await client
+        .patch(`/api/tasks/${created.task.id}`, {
+          name: BASE_TASK.name,
+          priority: 'LOW',
+          assignedBy: '',
+          version,
+        })
+        .expect(200);
+      expect((res.body as { task: object }).task).toMatchObject({
+        priority: 'LOW',
+        assignedBy: null,
+        project: 'Billing module',
+        dueDate: '2026-11-20',
+      });
+      const history = await prisma.taskHistory.findMany({
+        where: { taskId: created.task.id, action: 'TASK_UPDATED' },
+      });
+      expect(history[0]!.changes).toEqual({
+        priority: { from: 'HIGH', to: 'LOW' },
+        assignedBy: { from: 'Priya (Team Lead)', to: null },
+      });
+    });
+
+    it('reports the work of a period with totals, oldest day first', async () => {
+      const { client } = await userWithWorkbook('report');
+      const first = (await createTask(client, DETAILS).expect(201)).body as SaveResult;
+      await client
+        .post(`/api/tasks/${first.task.id}/updates`, {
+          entryDate: '2026-11-06',
+          description: 'Filed the return.',
+          status: 'COMPLETED',
+          startTime: '10:00',
+          endTime: '11:00',
+        })
+        .expect(201);
+      await createTask(client, {
+        name: 'Older work',
+        entryDate: '2026-10-10',
+        status: 'TO_DO',
+      }).expect(201);
+
+      interface Report {
+        from: string | null;
+        totals: Record<string, number>;
+        entries: { entryDate: string; task: { name: string; assignedBy: string | null } }[];
+        truncated: boolean;
+      }
+      const november = (
+        await client.get('/api/tasks/report?from=2026-11-01&to=2026-11-30').expect(200)
+      ).body as Report;
+      expect(november.totals).toEqual({
+        entries: 2,
+        tasks: 1,
+        completedTasks: 1,
+        daysWorked: 2,
+        minutesWorked: 285,
+        entriesWithoutTime: 0,
+      });
+      expect(november.entries.map((entry) => entry.entryDate)).toEqual([
+        '2026-11-05',
+        '2026-11-06',
+      ]);
+      expect(november.entries[0]!.task).toMatchObject({
+        name: BASE_TASK.name,
+        assignedBy: 'Priya (Team Lead)',
+      });
+      expect(november.truncated).toBe(false);
+
+      const overall = (await client.get('/api/tasks/report').expect(200)).body as Report;
+      expect(overall.from).toBeNull();
+      expect(overall.totals).toMatchObject({ entries: 3, tasks: 2, entriesWithoutTime: 1 });
+      expect(overall.entries[0]!.task.name).toBe('Older work');
+
+      await client.get('/api/tasks/report?from=2026-11-30&to=2026-11-01').expect(400);
+
+      // The same report as an Excel file.
+      const file = await client
+        .get('/api/tasks/report/download?from=2026-11-01&to=2026-11-30')
+        .buffer(true)
+        .parse((res, done) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => done(null, Buffer.concat(chunks)));
+        })
+        .expect(200);
+      expect(file.headers['content-disposition']).toContain(
+        'filename="Work report 2026-11-01 to 2026-11-30.xlsx"',
+      );
+      const excel = new ExcelJS.Workbook();
+      await excel.xlsx.load(file.body as ArrayBuffer);
+      expect(excel.worksheets.map((sheet) => sheet.name)).toEqual([
+        'Summary',
+        'Tasks',
+        'Daily log',
+      ]);
+      const daily = excel.getWorksheet('Daily log')!;
+      expect(daily.rowCount).toBe(3);
+      expect(daily.getRow(2).getCell(3).value).toBe(BASE_TASK.name);
+      expect(daily.getRow(2).getCell(8).value).toBe(3.75);
+      expect(daily.getRow(2).getCell(9).value).toBe('Waiting for the October invoices');
+      expect(excel.getWorksheet('Tasks')!.getRow(2).getCell(4).value).toBe('Priya (Team Lead)');
+
+      // And as a PDF.
+      const pdf = await client
+        .get('/api/tasks/report/download?format=pdf')
+        .buffer(true)
+        .parse((res, done) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => done(null, Buffer.concat(chunks)));
+        })
+        .expect(200);
+      expect(pdf.headers['content-type']).toBe('application/pdf');
+      expect(pdf.headers['content-disposition']).toContain('filename="Work report - all work.pdf"');
+      expect((pdf.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+      await client.get('/api/tasks/report/download?format=docx').expect(400);
+      const other = await userWithWorkbook('report-other');
+      const empty = (await other.client.get('/api/tasks/report').expect(200)).body as Report;
+      expect(empty.totals.entries).toBe(0);
+    });
+  });
+
   describe('workbook selection', () => {
     it('uses the default workbook when none is given, and the chosen one otherwise', async () => {
       const { client, workbookId } = await userWithWorkbook('select');

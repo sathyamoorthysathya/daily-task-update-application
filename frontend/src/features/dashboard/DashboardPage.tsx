@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { FormAlert } from '../../components/form/FormAlert';
 import {
+  ArrowRightIcon,
   CalendarIcon,
   CheckCircleIcon,
   ClockIcon,
-  PlusIcon,
+  SheetIcon,
   TasksIcon,
 } from '../../components/icons';
 import { errorMessage } from '../../lib/api/api-error';
@@ -41,6 +42,22 @@ function weekTrend(current: number, previous: number): { text: string; direction
   return change > 0
     ? { text: `+${change}% vs the previous 7 days`, direction: 'up' }
     : { text: `${change}% vs the previous 7 days`, direction: 'down' };
+}
+
+/** "Today", "Yesterday", "6 days ago", "3 weeks ago", ... for a calendar date (YYYY-MM-DD). */
+function relativeDay(isoDate: string): string {
+  const day = (iso: string) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
+  const days = Math.round((day(todayLocal()) - day(isoDate)) / 86_400_000);
+  const format = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  const text =
+    Math.abs(days) < 7
+      ? format.format(-days, 'day')
+      : Math.abs(days) < 30
+        ? format.format(-Math.round(days / 7), 'week')
+        : Math.abs(days) < 365
+          ? format.format(-Math.round(days / 30), 'month')
+          : format.format(-Math.round(days / 365), 'year');
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 const SYNC_LABEL: Record<Workbook['syncStatus'], string> = {
@@ -129,11 +146,8 @@ export function DashboardPage() {
                 : `You have logged ${plural(data.periods.today, 'entry', 'entries')} today and ${plural(data.periods.last7Days, 'entry', 'entries')} in the last 7 days. ${plural(data.totals.open, 'task is', 'tasks are')} still open.`}
           </p>
           <div className="hero-actions">
-            <Link to="/tasks/new" className="button hero-button-primary">
-              <PlusIcon /> New task
-            </Link>
-            <Link to="/tasks" className="button hero-button">
-              All tasks
+            <Link to="/tasks" className="button hero-button-primary">
+              View all tasks
             </Link>
           </div>
         </div>
@@ -235,8 +249,13 @@ export function DashboardPage() {
 
           <section className="card dash-recent" aria-labelledby="recent-heading">
             <div className="card-header">
-              <h2 id="recent-heading">Recent task updates</h2>
-              <Link to="/tasks">View all tasks</Link>
+              <div>
+                <h2 id="recent-heading">Recent task updates</h2>
+                <p className="muted">Latest entries across your workbooks</p>
+              </div>
+              <Link to="/tasks" className="dash-recent-all">
+                View all <ArrowRightIcon />
+              </Link>
             </div>
             {recent === null && <div className="skeleton skeleton--table" />}
             {recent?.length === 0 && (
@@ -248,30 +267,54 @@ export function DashboardPage() {
               </div>
             )}
             {recent && recent.length > 0 && (
-              <div className="table-wrap">
+              <div className="table-wrap dash-recent-wrap">
                 <table className="data-table dash-table" aria-labelledby="recent-heading">
                   <thead>
                     <tr>
-                      <th scope="col">Date</th>
                       <th scope="col">Task</th>
-                      <th scope="col">Workbook</th>
+                      <th scope="col" className="dash-col-workbook">
+                        Workbook
+                      </th>
                       <th scope="col">Status</th>
+                      <th scope="col" className="dash-col-date">
+                        Date
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {recent.map((update) => (
                       <tr key={update.id}>
-                        <td className="nowrap">{formatTaskDate(update.entryDate)}</td>
-                        <td>
+                        <td className="dash-col-task">
                           <Link to={`/tasks/${update.taskId}`} className="dash-task-link">
-                            <span className="task-number">#{update.taskNumber}</span>{' '}
-                            {update.taskName}
+                            <span className="task-number dash-task-number">
+                              #{update.taskNumber}
+                            </span>{' '}
+                            <span className="dash-task-name">{update.taskName}</span>
                           </Link>
-                          <span className="dash-task-description muted">{update.description}</span>
+                          {update.description && (
+                            <span className="dash-task-description" title={update.description}>
+                              {update.description}
+                            </span>
+                          )}
                         </td>
-                        <td className="muted">{workbookName(update.workbookId)}</td>
-                        <td>
+                        <td className="dash-col-workbook">
+                          <span className="dash-workbook">
+                            <SheetIcon />
+                            <span className="dash-workbook-name">
+                              {workbookName(update.workbookId)}
+                            </span>
+                          </span>
+                        </td>
+                        <td className="dash-col-status">
                           <StatusBadge status={update.status} />
+                        </td>
+                        <td className="dash-col-date">
+                          <time dateTime={update.entryDate} className="dash-date">
+                            {formatTaskDate(update.entryDate)}
+                          </time>
+                          <span className="dash-date-relative">
+                            {relativeDay(update.entryDate)}
+                          </span>
                         </td>
                       </tr>
                     ))}

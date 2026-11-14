@@ -8,6 +8,7 @@ import { ResetPasswordPage } from '../features/auth/pages/ResetPasswordPage';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
 import { NewTaskPage } from '../features/tasks/pages/NewTaskPage';
+import { ReportPage } from '../features/reports/ReportPage';
 import { TaskDetailPage } from '../features/tasks/pages/TaskDetailPage';
 import { TasksPage } from '../features/tasks/pages/TasksPage';
 import { CreateWorkbookPage } from '../features/workbooks/pages/CreateWorkbookPage';
@@ -41,6 +42,7 @@ export const routes: RouteObject[] = [
           { path: '/tasks', element: <TasksPage /> },
           { path: '/tasks/new', element: <NewTaskPage /> },
           { path: '/tasks/:taskId', element: <TaskDetailPage /> },
+          { path: '/report', element: <ReportPage /> },
         ],
       },
     ],

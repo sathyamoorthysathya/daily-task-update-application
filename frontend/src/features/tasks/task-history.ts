@@ -1,6 +1,6 @@
-import { statusLabel } from './task-status';
+import { priorityLabel, statusLabel } from './task-status';
 import { formatTaskDate } from './tasks.schemas';
-import type { TaskHistoryEntry, TaskStatus } from './task.types';
+import type { TaskHistoryEntry, TaskPriority, TaskStatus } from './task.types';
 
 const STATUS_VALUES = ['TO_DO', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'ON_HOLD'];
 
@@ -8,6 +8,12 @@ function asStatus(value: unknown): string {
   return typeof value === 'string' && STATUS_VALUES.includes(value)
     ? statusLabel(value as TaskStatus)
     : '—';
+}
+
+function asPriority(value: unknown): string {
+  return typeof value === 'string' && ['LOW', 'MEDIUM', 'HIGH'].includes(value)
+    ? priorityLabel(value as TaskPriority)
+    : 'none';
 }
 
 function asDate(value: unknown): string {
@@ -52,11 +58,44 @@ export function describeHistory(entry: TaskHistoryEntry): { title: string; detai
             : 'Documentation reference removed',
         );
       }
+      if (isChange(changes.startTime) || isChange(changes.endTime)) {
+        details.push('Working hours changed');
+      }
+      if (isChange(changes.remarks)) {
+        details.push(changes.remarks.to ? 'Remarks changed' : 'Remarks removed');
+      }
       return { title: `Entry for ${asDate(changes.entryDate)} updated`, details };
     }
     case 'TASK_RENAMED': {
       const name = isChange(changes.name) ? changes.name : { from: '', to: '' };
       return { title: 'Task renamed', details: [`“${String(name.from)}” → “${String(name.to)}”`] };
+    }
+    case 'TASK_UPDATED': {
+      const details: string[] = [];
+      if (isChange(changes.name)) {
+        details.push(`Name: “${String(changes.name.from)}” → “${String(changes.name.to)}”`);
+      }
+      const text = (value: unknown) => (typeof value === 'string' && value ? value : 'none');
+      for (const [field, label] of [
+        ['assignedBy', 'Assigned by'],
+        ['project', 'Project'],
+      ] as const) {
+        const change = changes[field];
+        if (isChange(change)) {
+          details.push(`${label}: ${text(change.from)} → ${text(change.to)}`);
+        }
+      }
+      if (isChange(changes.priority)) {
+        details.push(
+          `Priority: ${asPriority(changes.priority.from)} → ${asPriority(changes.priority.to)}`,
+        );
+      }
+      if (isChange(changes.dueDate)) {
+        const due = (value: unknown) =>
+          typeof value === 'string' ? formatTaskDate(value) : 'none';
+        details.push(`Due date: ${due(changes.dueDate.from)} → ${due(changes.dueDate.to)}`);
+      }
+      return { title: 'Task details updated', details };
     }
     case 'TASK_DELETED':
       return { title: 'Task deleted', details: [] };

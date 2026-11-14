@@ -20,6 +20,23 @@ export class TaskUpdateDto {
   @ApiProperty({ type: String, nullable: true })
   reference!: string | null;
 
+  @ApiProperty({ type: String, nullable: true, example: '09:30', description: 'HH:MM, 24 hours' })
+  startTime!: string | null;
+
+  @ApiProperty({ type: String, nullable: true, example: '13:00', description: 'HH:MM, 24 hours' })
+  endTime!: string | null;
+
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    example: 210,
+    description: 'Minutes between start and end time; null unless both are set',
+  })
+  minutesWorked!: number | null;
+
+  @ApiProperty({ type: String, nullable: true, description: 'Blockers or notes for the manager' })
+  remarks!: string | null;
+
   @ApiProperty({ description: 'Send back when editing (optimistic locking)' })
   version!: number;
 
@@ -52,6 +69,18 @@ export class TaskDto {
   @ApiProperty({ description: 'Number of dated updates' })
   entryCount!: number;
 
+  @ApiProperty({ type: String, nullable: true, example: 'Priya (Team Lead)' })
+  assignedBy!: string | null;
+
+  @ApiProperty({ type: String, nullable: true, enum: ['LOW', 'MEDIUM', 'HIGH'] })
+  priority!: string | null;
+
+  @ApiProperty({ type: String, nullable: true, example: 'Billing module' })
+  project!: string | null;
+
+  @ApiProperty({ type: String, nullable: true, example: '2026-11-20' })
+  dueDate!: string | null;
+
   @ApiProperty({ description: 'Send back when renaming or deleting (optimistic locking)' })
   version!: number;
 
@@ -72,7 +101,14 @@ export class TaskHistoryDto {
   id!: string;
 
   @ApiProperty({
-    enum: ['TASK_CREATED', 'ENTRY_ADDED', 'ENTRY_UPDATED', 'TASK_RENAMED', 'TASK_DELETED'],
+    enum: [
+      'TASK_CREATED',
+      'ENTRY_ADDED',
+      'ENTRY_UPDATED',
+      'TASK_RENAMED',
+      'TASK_DELETED',
+      'TASK_UPDATED',
+    ],
   })
   action!: string;
 
@@ -167,6 +203,51 @@ export class RecentTaskUpdatesDto {
   updates!: RecentTaskUpdateDto[];
 }
 
+export class ReportEntryDto extends TaskUpdateDto {
+  @ApiProperty({ type: TaskDto })
+  task!: TaskDto;
+
+  @ApiProperty({ example: 'Daily Tasks 2026' })
+  workbookName!: string;
+}
+
+export class ReportTotalsDto {
+  @ApiProperty({ description: 'Daily entries in the period', example: 42 })
+  entries!: number;
+
+  @ApiProperty({ description: 'Different tasks worked on', example: 17 })
+  tasks!: number;
+
+  @ApiProperty({ description: 'Of those, tasks that are completed now', example: 11 })
+  completedTasks!: number;
+
+  @ApiProperty({ description: 'Different days with at least one entry', example: 21 })
+  daysWorked!: number;
+
+  @ApiProperty({ description: 'Sum of the recorded working time, in minutes', example: 5400 })
+  minutesWorked!: number;
+
+  @ApiProperty({ description: 'Entries without a start and end time', example: 3 })
+  entriesWithoutTime!: number;
+}
+
+export class TaskReportDto {
+  @ApiProperty({ type: String, nullable: true, example: '2026-11-01' })
+  from!: string | null;
+
+  @ApiProperty({ type: String, nullable: true, example: '2026-11-30' })
+  to!: string | null;
+
+  @ApiProperty({ type: ReportTotalsDto })
+  totals!: ReportTotalsDto;
+
+  @ApiProperty({ type: [ReportEntryDto], description: 'Oldest date first' })
+  entries!: ReportEntryDto[];
+
+  @ApiProperty({ description: 'More entries exist than are returned; narrow the period' })
+  truncated!: boolean;
+}
+
 export class TaskListItemDto extends TaskDto {
   @ApiProperty({ type: WorkbookRefDto })
   workbook!: WorkbookRefDto;
@@ -176,6 +257,20 @@ export class TaskListItemDto extends TaskDto {
 
   @ApiProperty({ type: String, nullable: true, description: 'Reference of the latest update' })
   latestReference!: string | null;
+
+  @ApiProperty({ format: 'date-time', description: 'Last change to the task or its updates' })
+  updatedAt!: string;
+
+  @ApiProperty({ format: 'date-time', description: 'When the latest dated update was last saved' })
+  lastEntryAt!: string;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    format: 'date-time',
+    description: 'When the latest update was saved as Completed; null while the task is open',
+  })
+  completedAt!: string | null;
 }
 
 export class TaskPageDto {

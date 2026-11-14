@@ -65,10 +65,10 @@ export function LoginPage() {
   return (
     <AuthLayout
       title="Sign in"
-      subtitle="Welcome back! Sign in to see your daily tasks."
+      subtitle="Enter your credentials to access your daily tasks and Excel workbooks."
       footer={
         <>
-          New here? <Link to="/register">Create an account</Link>
+          Don&apos;t have an account? <Link to="/register">Create an account</Link>
         </>
       }
     >

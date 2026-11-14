@@ -4,24 +4,28 @@ import { FormAlert } from '../../../components/form/FormAlert';
 import { SelectField } from '../../../components/form/SelectField';
 import { TextAreaField } from '../../../components/form/TextAreaField';
 import { TextField } from '../../../components/form/TextField';
+import { TimeField } from '../../../components/form/TimeField';
 import { ApiError, errorMessage } from '../../../lib/api/api-error';
 import { useFormErrors } from '../../auth/use-form-errors';
 import { useWorkbookList } from '../../workbooks/use-workbook-list';
 import { DuplicateTaskDialog, type DuplicateChoice } from '../components/DuplicateTaskDialog';
 import { RecentUpdates } from '../components/RecentUpdates';
 import { StatusBadge } from '../components/StatusBadge';
-import { TASK_STATUSES } from '../task-status';
+import { TASK_PRIORITIES, TASK_STATUSES } from '../task-status';
 import { ExcelSyncNotice } from '../../workbooks/components/ExcelSyncNotice';
 import type {
   ExcelSync,
   RecentTaskUpdate,
   SaveTaskResult,
   TaskMatch,
+  TaskPriority,
   TaskStatus,
 } from '../task.types';
 import { tasksApi } from '../tasks.api';
 import {
+  formatMinutes,
   formatTaskDate,
+  minutesBetween,
   type ParsedTaskForm,
   taskFormSchema,
   todayLocal,
@@ -31,7 +35,14 @@ import {
 type FormFields = {
   name: string;
   entryDate: string;
+  project: string;
+  assignedBy: string;
+  priority: '' | TaskPriority;
+  dueDate: string;
   description: string;
+  startTime: string;
+  endTime: string;
+  remarks: string;
   reference: string;
   status: TaskStatus;
 };
@@ -39,12 +50,20 @@ type FormFields = {
 const emptyFields = (entryDate = todayLocal()): FormFields => ({
   name: '',
   entryDate,
+  project: '',
+  assignedBy: '',
+  priority: '',
+  dueDate: '',
   description: '',
+  startTime: '',
+  endTime: '',
+  remarks: '',
   reference: '',
   status: 'TO_DO',
 });
 
 const STATUS_LABELS = TASK_STATUSES.map((status) => status.label);
+const PRIORITY_LABELS = TASK_PRIORITIES.map((priority) => priority.label);
 
 function isTaskMatch(value: unknown): value is TaskMatch {
   return typeof value === 'object' && value !== null && 'task' in value && 'targetUpdate' in value;
@@ -187,12 +206,18 @@ export function NewTaskPage() {
               description: entry.description,
               reference: entry.reference,
               status: entry.status,
+              startTime: entry.startTime,
+              endTime: entry.endTime,
+              remarks: entry.remarks,
             })
           : await tasksApi.addUpdate(match.task.id, {
               entryDate: entry.entryDate,
               description: entry.description,
               reference: entry.reference,
               status: entry.status,
+              startTime: entry.startTime,
+              endTime: entry.endTime,
+              remarks: entry.remarks,
             });
       setDuplicate(null);
       onSaved(
@@ -217,12 +242,15 @@ export function NewTaskPage() {
     }
   }
 
+  const hoursWorked = minutesBetween(values.startTime, values.endTime);
+
   return (
     <div className="app app--wide">
       <header className="app-header">
         <h1>New task</h1>
         <p className="muted">
-          Record what you worked on. It is saved and added to your Excel workbook.
+          Record what you worked on today. It is saved, added to your Excel workbook and shown in
+          your work report.
         </p>
       </header>
 
@@ -275,6 +303,11 @@ export function NewTaskPage() {
               )}
             </div>
 
+            <div className="form-section field--wide">
+              <h2>Task</h2>
+              <p className="muted">What the task is and who gave it to you.</p>
+            </div>
+
             <TextField
               label="Task Number"
               name="taskNumber"
@@ -307,19 +340,102 @@ export function NewTaskPage() {
                   A task with this name already exists in this workbook (#
                   {nameMatch.task.taskNumber}, latest {formatTaskDate(nameMatch.task.lastEntryDate)}
                   , <StatusBadge status={nameMatch.task.status} />
-                  ). You will be asked whether to update it or add a new daily entry.
+                  ). You will be asked whether to update it or add a new daily entry; the task
+                  details below stay as they are and can be changed on the task’s page.
                 </p>
               )}
             </div>
+            <TextField
+              label="Project / Module"
+              name="project"
+              maxLength={100}
+              placeholder="e.g. Billing module"
+              value={values.project}
+              onChange={update('project')}
+              hint="Optional."
+              error={fieldErrors.project}
+            />
+            <TextField
+              label="Assigned By"
+              name="assignedBy"
+              maxLength={100}
+              placeholder="Manager or team lead"
+              value={values.assignedBy}
+              onChange={update('assignedBy')}
+              hint="Optional. Who gave you this task."
+              error={fieldErrors.assignedBy}
+            />
+            <SelectField
+              label="Priority"
+              name="priority"
+              options={PRIORITY_LABELS}
+              placeholder="Not set"
+              value={TASK_PRIORITIES.find((p) => p.value === values.priority)?.label ?? ''}
+              onChange={(event) => {
+                const priority = TASK_PRIORITIES.find((p) => p.label === event.target.value);
+                setValues((current) => ({ ...current, priority: priority?.value ?? '' }));
+                clearFieldError('priority');
+              }}
+              error={fieldErrors.priority}
+            />
+            <TextField
+              label="Due Date"
+              type="date"
+              name="dueDate"
+              value={values.dueDate}
+              onChange={update('dueDate')}
+              hint="Optional. The deadline you were given."
+              error={fieldErrors.dueDate}
+            />
+
+            <div className="form-section field--wide">
+              <h2>Work done</h2>
+              <p className="muted">What you did on this date, how long it took and any blockers.</p>
+            </div>
+
             <div className="field--wide">
               <TextAreaField
                 label="Task Description"
                 name="description"
                 rows={5}
                 maxLength={5000}
+                placeholder="What did you work on?"
                 value={values.description}
                 onChange={update('description')}
                 error={fieldErrors.description}
+              />
+            </div>
+            <TimeField
+              label="Start Time"
+              name="startTime"
+              value={values.startTime}
+              onChange={update('startTime')}
+              hint="Optional."
+              error={fieldErrors.startTime}
+            />
+            <TimeField
+              label="End Time"
+              name="endTime"
+              value={values.endTime}
+              onChange={update('endTime')}
+              hint={
+                hoursWorked === null
+                  ? 'Optional. Hours worked are calculated for you.'
+                  : `Hours worked: ${formatMinutes(hoursWorked)}`
+              }
+              error={fieldErrors.endTime}
+            />
+            <div className="field--wide">
+              <TextAreaField
+                label="Remarks / Blockers"
+                name="remarks"
+                rows={2}
+                maxLength={2000}
+                placeholder="Anything that slowed you down, or a note for your manager"
+                value={values.remarks}
+                onChange={update('remarks')}
+                hint="Optional."
+                error={fieldErrors.remarks}
               />
             </div>
             <TextField

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '../../app/routes';
-import { listOf, makeWorkbook } from '../../test/fixtures';
+import { listOf, makeWorkbook, NO_TASK_DETAILS, NO_WORK_DETAILS } from '../../test/fixtures';
 import { apiError, clearCookies, type MockHandler, mockApi, TEST_USER } from '../../test/mock-api';
 import { AuthProvider } from '../auth/AuthProvider';
 import type { SaveTaskResult, TaskMatch, TaskUpdate } from './task.types';
@@ -23,6 +23,7 @@ const UPDATE: TaskUpdate = {
   status: 'IN_PROGRESS',
   description: 'Collected invoices',
   reference: null,
+  ...NO_WORK_DETAILS,
   version: 3,
   createdAt: '2026-11-05T09:00:00.000Z',
   updatedAt: '2026-11-05T09:00:00.000Z',
@@ -37,6 +38,7 @@ const MATCH: TaskMatch = {
     status: 'IN_PROGRESS',
     lastEntryDate: '2026-11-05',
     entryCount: 1,
+    ...NO_TASK_DETAILS,
     version: 1,
     createdAt: '2026-11-05T09:00:00.000Z',
   },
@@ -91,6 +93,13 @@ function renderForm(routesOverride: Record<string, MockHandler> = {}) {
 
 function fill(label: string, value: string) {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
+}
+
+/** Picks a time in a 12-hour time field, e.g. fillTime('Start Time', '9', '30', 'AM'). */
+function fillTime(label: string, hour: string, minute: string, period: 'AM' | 'PM') {
+  fill(`${label} hour`, hour);
+  fill(`${label} minute`, minute);
+  fill(`${label} AM or PM`, period);
 }
 
 async function fillValidTask() {
@@ -199,15 +208,81 @@ describe('NewTaskPage', () => {
       expect(requests.find((r) => r.method === 'POST' && r.path === '/tasks')?.body).toEqual({
         workbookId: 'wb-main',
         name: 'Prepare GST report',
+        ...NO_TASK_DETAILS,
         entryDate: '2026-11-06',
         description: 'Filed the October return.',
         reference: 'https://docs.example.com/gst',
         status: 'COMPLETED',
+        startTime: null,
+        endTime: null,
+        remarks: null,
       });
       expect(screen.getByLabelText('Task Name')).toHaveValue('');
       expect(screen.getByLabelText('Task Description')).toHaveValue('');
       expect(screen.getByLabelText('Task Date')).toHaveValue('2026-11-06');
       await waitFor(() => expect(recentCalls).toBeGreaterThanOrEqual(2));
+    });
+
+    it('saves who assigned the task, its priority, project, due date, hours and remarks', async () => {
+      const { requests } = renderForm({ 'POST /tasks': { status: 201, body: saved() } });
+      await fillValidTask();
+      fill('Project / Module', '  Billing   module ');
+      fill('Assigned By', 'Priya (Team Lead)');
+      fill('Priority', 'High');
+      fill('Due Date', '2026-11-20');
+      fillTime('Start Time', '9', '30', 'AM');
+      fillTime('End Time', '1', '15', 'PM');
+      fill('Remarks / Blockers', 'Waiting for invoices');
+      expect(screen.getByText('Hours worked: 3 h 45 min')).toBeInTheDocument();
+
+      submit();
+
+      await screen.findByText(/was added to Daily Tasks/);
+      expect(requests.find((r) => r.method === 'POST' && r.path === '/tasks')?.body).toMatchObject({
+        project: 'Billing module',
+        assignedBy: 'Priya (Team Lead)',
+        priority: 'HIGH',
+        dueDate: '2026-11-20',
+        startTime: '09:30',
+        endTime: '13:15',
+        remarks: 'Waiting for invoices',
+      });
+      // The form is cleared for the next task.
+      expect(screen.getByLabelText('Assigned By')).toHaveValue('');
+      expect(screen.getByLabelText('Priority')).toHaveValue('');
+      expect(screen.getByLabelText('Start Time hour')).toHaveValue('');
+    });
+
+    it('uses the 12-hour clock for times and can clear a time', async () => {
+      renderForm();
+      await fillValidTask();
+
+      // Picking only the hour is enough: it starts as that hour, 00 minutes, AM.
+      fill('End Time hour', '12');
+      expect(screen.getByLabelText('End Time minute')).toHaveValue('00');
+      expect(screen.getByLabelText('End Time AM or PM')).toHaveValue('AM');
+      fill('End Time AM or PM', 'PM');
+      fillTime('Start Time', '11', '45', 'AM');
+      // 11:45 AM to 12:00 PM (noon).
+      expect(screen.getByText('Hours worked: 15 min')).toBeInTheDocument();
+
+      fill('End Time hour', '');
+      expect(screen.getByLabelText('End Time AM or PM')).toHaveValue('');
+      expect(screen.queryByText(/Hours worked:/)).not.toBeInTheDocument();
+    });
+
+    it('rejects an end time that is not after the start time', async () => {
+      const { requests } = renderForm();
+      await fillValidTask();
+      fillTime('Start Time', '2', '00', 'PM');
+      fillTime('End Time', '9', '00', 'AM');
+
+      submit();
+
+      expect(
+        await screen.findByText('The end time must be after the start time'),
+      ).toBeInTheDocument();
+      expect(requests.some((r) => r.method === 'POST')).toBe(false);
     });
 
     it('keeps following the Excel update while it is retried', async () => {
@@ -331,6 +406,9 @@ describe('NewTaskPage', () => {
         description: 'Filed the October return.',
         reference: 'https://docs.example.com/gst',
         status: 'COMPLETED',
+        startTime: null,
+        endTime: null,
+        remarks: null,
         version: 3,
       });
     });
@@ -351,6 +429,9 @@ describe('NewTaskPage', () => {
         description: 'Filed the October return.',
         reference: 'https://docs.example.com/gst',
         status: 'COMPLETED',
+        startTime: null,
+        endTime: null,
+        remarks: null,
       });
       expect(requests.some((r) => r.method === 'PATCH')).toBe(false);
     });

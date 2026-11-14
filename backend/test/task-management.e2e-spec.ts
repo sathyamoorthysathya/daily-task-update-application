@@ -19,6 +19,9 @@ interface ListItem {
   version: number;
   workbook: { id: string; name: string };
   latestDescription: string;
+  updatedAt: string;
+  lastEntryAt: string;
+  completedAt: string | null;
 }
 
 interface TaskPage {
@@ -166,6 +169,7 @@ describe('Task management page (e2e)', () => {
         status: 'PENDING',
         entryCount: 2,
         latestDescription: 'Second pass',
+        completedAt: null,
       });
     });
 
@@ -217,6 +221,9 @@ describe('Task management page (e2e)', () => {
     it('filters by status, workbook and date range', async () => {
       const completed = await list(client, '?status=COMPLETED&pageSize=100');
       expect(completed.items.every((t) => t.status === 'COMPLETED')).toBe(true);
+      expect(completed.items.every((t) => !Number.isNaN(Date.parse(t.completedAt ?? '')))).toBe(
+        true,
+      );
       expect(completed.total).toBe(6); // 5 in Main + 1 in Apollo
 
       const inApollo = await list(client, `?workbookId=${apollo}`);

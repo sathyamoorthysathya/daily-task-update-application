@@ -1,12 +1,18 @@
 import { Injectable } from '@nestjs/common';
 import ExcelJS from 'exceljs';
-import type { TaskStatus } from '../../generated/prisma/client.js';
+import type { TaskPriority, TaskStatus } from '../../generated/prisma/client.js';
 import { TASK_STATUSES, taskStatusLabel } from '../tasks/task-status.js';
 import {
   DAILY_TASK_COLUMNS,
   DAILY_TASKS_SHEET_NAME,
   INTERNAL_ID_COLUMNS,
+  LAST_COLUMN,
+  WORK_DETAIL_COLUMNS,
 } from './workbook.constants.js';
+
+const PRIORITY_LABEL: Record<TaskPriority, string> = { LOW: 'Low', MEDIUM: 'Medium', HIGH: 'High' };
+
+const toMinutes = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
 
 const HEADER_FILL = 'FF1F3A93';
 const HEADER_FONT = 'FFFFFFFF';
@@ -34,6 +40,16 @@ export interface DailyTaskRow {
   description: string;
   reference: string | null;
   status: TaskStatus;
+  /** Work details (columns I-P); all optional. */
+  project?: string | null;
+  assignedBy?: string | null;
+  priority?: TaskPriority | null;
+  /** Calendar date at UTC midnight. */
+  dueDate?: Date | null;
+  /** Wall-clock "HH:MM". */
+  startTime?: string | null;
+  endTime?: string | null;
+  remarks?: string | null;
 }
 
 const thin = { style: 'thin' as const, color: { argb: BORDER_COLOR } };
@@ -80,6 +96,11 @@ export class WorkbookTemplateService {
         width: column.width,
         hidden: true,
       })),
+      ...WORK_DETAIL_COLUMNS.map((column) => ({
+        key: column.key,
+        header: column.header,
+        width: column.width,
+      })),
     ];
 
     // Column formats for the data rows.
@@ -90,6 +111,16 @@ export class WorkbookTemplateService {
     sheet.getColumn('taskDescription').alignment = { vertical: 'top', wrapText: true };
     sheet.getColumn('reference').alignment = { vertical: 'top', wrapText: true };
     sheet.getColumn('status').alignment = { horizontal: 'center', vertical: 'top' };
+    sheet.getColumn('project').alignment = { vertical: 'top', wrapText: true };
+    sheet.getColumn('assignedBy').alignment = { vertical: 'top', wrapText: true };
+    sheet.getColumn('priority').alignment = { horizontal: 'center', vertical: 'top' };
+    sheet.getColumn('dueDate').numFmt = 'yyyy-mm-dd';
+    sheet.getColumn('dueDate').alignment = { horizontal: 'center', vertical: 'top' };
+    sheet.getColumn('startTime').alignment = { horizontal: 'center', vertical: 'top' };
+    sheet.getColumn('endTime').alignment = { horizontal: 'center', vertical: 'top' };
+    sheet.getColumn('hoursWorked').numFmt = '0.00';
+    sheet.getColumn('hoursWorked').alignment = { horizontal: 'center', vertical: 'top' };
+    sheet.getColumn('remarks').alignment = { vertical: 'top', wrapText: true };
 
     const header = sheet.getRow(1);
     header.height = 24;
@@ -125,7 +156,7 @@ export class WorkbookTemplateService {
 
     sheet.autoFilter = {
       from: { row: 1, column: 1 },
-      to: { row: Math.max(1, rows.length + 1), column: DAILY_TASK_COLUMNS.length },
+      to: { row: Math.max(1, rows.length + 1), column: LAST_COLUMN },
     };
 
     return Buffer.from(await workbook.xlsx.writeBuffer());
@@ -142,6 +173,19 @@ export class WorkbookTemplateService {
       status: taskStatusLabel(row.status),
       taskId: row.taskId,
       taskUpdateId: row.taskUpdateId,
+      // Plain strings again: user text is never written as a formula.
+      project: row.project ?? '',
+      assignedBy: row.assignedBy ?? '',
+      priority: row.priority ? PRIORITY_LABEL[row.priority] : '',
+      dueDate: row.dueDate ?? '',
+      startTime: row.startTime ?? '',
+      endTime: row.endTime ?? '',
+      // A number, so the column can be summed in Excel.
+      hoursWorked:
+        row.startTime && row.endTime
+          ? Math.round(((toMinutes(row.endTime) - toMinutes(row.startTime)) / 60) * 100) / 100
+          : '',
+      remarks: row.remarks ?? '',
     });
     excelRow.eachCell({ includeEmpty: true }, (cell) => {
       cell.border = { top: thin, bottom: thin, left: thin, right: thin };

@@ -196,7 +196,7 @@ describe('app layout', () => {
       within(nav)
         .getAllByRole('link')
         .map((link) => link.textContent),
-    ).toEqual(['Dashboard', 'Tasks', 'Add task', 'Workbooks', 'Profile']);
+    ).toEqual(['Dashboard', 'Tasks', 'Add task', 'Work report', 'Workbooks', 'Profile']);
     expect(within(nav).getByRole('link', { name: 'Dashboard' })).toHaveClass('active');
     expect(screen.getByTestId('current-user')).toHaveTextContent('Jane Doe');
   });

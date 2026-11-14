@@ -51,7 +51,7 @@ export function RegisterPage() {
   return (
     <AuthLayout
       title="Create your account"
-      subtitle="Start tracking your daily work in minutes."
+      subtitle="Set up your workspace in seconds. Your first Excel workbook comes next."
       footer={
         <>
           Already have an account? <Link to="/login">Sign in</Link>

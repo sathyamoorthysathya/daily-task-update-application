@@ -10,7 +10,7 @@ async function load(buffer: Buffer) {
 describe('WorkbookTemplateService', () => {
   const service = new WorkbookTemplateService();
 
-  it('creates a single "Daily Tasks" worksheet with the six columns A-F', async () => {
+  it('creates a single "Daily Tasks" worksheet with the task and work detail columns', async () => {
     const workbook = await load(await service.createDailyTasksWorkbook('My Tasks'));
 
     expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(['Daily Tasks']);
@@ -25,6 +25,14 @@ describe('WorkbookTemplateService', () => {
       'Status',
       'Task ID (internal)',
       'Task Update ID (internal)',
+      'Project / Module',
+      'Assigned By',
+      'Priority',
+      'Due Date',
+      'Start Time',
+      'End Time',
+      'Hours Worked',
+      'Remarks / Blockers',
     ]);
     expect(sheet.rowCount).toBe(1);
     expect(workbook.title).toBe('My Tasks');
@@ -37,7 +45,9 @@ describe('WorkbookTemplateService', () => {
 
     expect(sheet.getColumn(7).hidden).toBe(true);
     expect(sheet.getColumn(8).hidden).toBe(true);
-    expect([1, 2, 3, 4, 5, 6].some((c) => sheet.getColumn(c).hidden)).toBe(false);
+    expect(
+      [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16].some((c) => sheet.getColumn(c).hidden),
+    ).toBe(false);
   });
 
   it('refuses to write two rows for the same task update', async () => {
@@ -82,7 +92,7 @@ describe('WorkbookTemplateService', () => {
     expect([1, 2, 3, 4, 5, 6].map((c) => sheet.getColumn(c).width)).toEqual([
       14, 14, 32, 60, 42, 16,
     ]);
-    expect(sheet.autoFilter).toBe('A1:F1');
+    expect(sheet.autoFilter).toBe('A1:P1');
     expect(sheet.views[0]).toMatchObject({ state: 'frozen', ySplit: 1, topLeftCell: 'A2' });
     expect(sheet.getColumn(2).numFmt).toBe('yyyy-mm-dd');
     expect(sheet.getColumn(4).alignment).toMatchObject({ wrapText: true });
@@ -99,6 +109,13 @@ describe('WorkbookTemplateService', () => {
         description: '=HYPERLINK("http://evil.example")',
         reference: 'https://docs.example.com/report',
         status: 'IN_PROGRESS',
+        project: 'Billing',
+        assignedBy: '=cmd|calc',
+        priority: 'HIGH',
+        dueDate: new Date('2026-11-20T00:00:00.000Z'),
+        startTime: '09:30',
+        endTime: '13:15',
+        remarks: 'Waiting for the October invoices',
       },
       {
         taskId: 'task-1',
@@ -135,7 +152,21 @@ describe('WorkbookTemplateService', () => {
     expect(first.getCell(8).value).toBe('update-1');
     expect(second.getCell(8).value).toBe('update-2');
 
-    expect(sheet.autoFilter).toBe('A1:F3');
+    // Work details in columns I-P; rows without them stay empty.
+    expect(first.getCell(9).value).toBe('Billing');
+    expect(first.getCell(10).value).toBe('=cmd|calc');
+    expect(first.getCell(10).formula).toBeUndefined();
+    expect(first.getCell(11).value).toBe('High');
+    expect(first.getCell(12).value).toEqual(new Date('2026-11-20T00:00:00.000Z'));
+    expect(first.getCell(13).value).toBe('09:30');
+    expect(first.getCell(14).value).toBe('13:15');
+    expect(first.getCell(15).value).toBe(3.75);
+    expect(first.getCell(16).value).toBe('Waiting for the October invoices');
+    expect([9, 10, 11, 12, 13, 14, 15, 16].map((c) => second.getCell(c).text)).toEqual(
+      Array(8).fill(''),
+    );
+
+    expect(sheet.autoFilter).toBe('A1:P3');
     expect(sheet.getCell('F2').dataValidation).toMatchObject({
       type: 'list',
       formulae: ['"To Do,In Progress,Pending,Completed,On Hold"'],

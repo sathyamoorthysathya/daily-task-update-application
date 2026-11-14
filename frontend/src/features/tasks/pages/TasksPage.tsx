@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { FormAlert } from '../../../components/form/FormAlert';
+import { PlusIcon, SearchIcon, SheetIcon } from '../../../components/icons';
 import { errorMessage } from '../../../lib/api/api-error';
 import { useWorkbookList } from '../../workbooks/use-workbook-list';
 import { StatusBadge } from '../components/StatusBadge';
@@ -73,6 +74,42 @@ function toListQuery(filters: Filters): TaskListQuery {
     page: filters.page,
     pageSize: filters.pageSize,
   };
+}
+
+const formatDay = (date: Date) =>
+  date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+const formatTime = (date: Date) =>
+  date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
+
+/** "under a minute", "23 min", "3 h 5 min", "2 d 4 h" */
+function formatDuration(milliseconds: number): string {
+  const minutes = Math.floor(Math.max(0, milliseconds) / 60_000);
+  if (minutes < 1) {
+    return 'under a minute';
+  }
+  if (minutes < 60) {
+    return `${minutes} min`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60} min`;
+  }
+  const days = Math.floor(hours / 24);
+  return hours % 24 === 0 ? `${days} d` : `${days} d ${hours % 24} h`;
+}
+
+/** A date with its time of day on a second line (the user's local time zone). */
+function DateTimeCell({ iso, note }: { iso: string; note?: string }) {
+  const date = new Date(iso);
+  return (
+    <time dateTime={iso} className="task-when">
+      <span className="task-when-date">{formatDay(date)}</span>
+      <span className="task-when-time">
+        {formatTime(date)}
+        {note && ` · ${note}`}
+      </span>
+    </time>
+  );
 }
 
 type LoadResult = { key: string; data: TaskPage } | { key: string; error: string };
@@ -183,7 +220,7 @@ export function TasksPage() {
   const workbooks = workbookState.status === 'ready' ? workbookState.data.workbooks : [];
 
   return (
-    <div className="app app--wide">
+    <div className="app app--tasks">
       <header className="app-header app-header--bar">
         <div>
           <h1>Tasks</h1>
@@ -191,8 +228,8 @@ export function TasksPage() {
             All your tasks across workbooks. Select a task to see its details.
           </p>
         </div>
-        <Link to="/tasks/new" className="button button--primary">
-          New task
+        <Link to="/tasks/new" className="button button--primary tasks-new">
+          <PlusIcon /> New task
         </Link>
       </header>
 
@@ -201,13 +238,16 @@ export function TasksPage() {
       <section className="card task-filters" role="search" aria-label="Filter tasks">
         <div className="field field--search">
           <label htmlFor="task-search">Search</label>
-          <input
-            id="task-search"
-            type="search"
-            placeholder="Task name or #number"
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-          />
+          <div className="search-input">
+            <SearchIcon />
+            <input
+              id="task-search"
+              type="search"
+              placeholder="Task name or #number"
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
+            />
+          </div>
         </div>
         <div className="field">
           <label htmlFor="task-status">Status</label>
@@ -348,12 +388,12 @@ export function TasksPage() {
               <table className="data-table task-table">
                 <thead>
                   <tr>
-                    <th scope="col">Task #</th>
                     <th scope="col">Task</th>
                     <th scope="col">Workbook</th>
-                    <th scope="col">Latest date</th>
-                    <th scope="col">Entries</th>
                     <th scope="col">Status</th>
+                    <th scope="col">Started</th>
+                    <th scope="col">Ended</th>
+                    <th scope="col">Last entry</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -363,22 +403,66 @@ export function TasksPage() {
                       className="clickable-row"
                       onClick={() => void navigate(`/tasks/${task.id}`)}
                     >
-                      <td className="task-number">#{task.taskNumber}</td>
-                      <td>
-                        <Link
-                          to={`/tasks/${task.id}`}
-                          className="recent-name"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          {task.name}
-                        </Link>
-                        <span className="recent-description muted">{task.latestDescription}</span>
+                      <td className="task-cell">
+                        <div className="task-cell-title">
+                          <span className="task-number">#{task.taskNumber}</span>
+                          <Link
+                            to={`/tasks/${task.id}`}
+                            className="recent-name"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {task.name}
+                          </Link>
+                        </div>
+                        {task.latestDescription && (
+                          <span className="recent-description muted">{task.latestDescription}</span>
+                        )}
+                        {task.latestReference && (
+                          <span className="task-reference" title={task.latestReference}>
+                            <span className="task-reference-label">Ref</span>
+                            {task.latestReference}
+                          </span>
+                        )}
                       </td>
-                      <td>{task.workbook.name}</td>
-                      <td className="nowrap">{formatTaskDate(task.lastEntryDate)}</td>
-                      <td>{task.entryCount}</td>
+                      <td>
+                        <span className="task-workbook">
+                          <SheetIcon />
+                          <span>{task.workbook.name}</span>
+                        </span>
+                      </td>
                       <td>
                         <StatusBadge status={task.status} />
+                      </td>
+                      <td>
+                        <DateTimeCell iso={task.createdAt} />
+                      </td>
+                      <td>
+                        {task.completedAt ? (
+                          <DateTimeCell
+                            iso={task.completedAt}
+                            note={formatDuration(
+                              Date.parse(task.completedAt) - Date.parse(task.createdAt),
+                            )}
+                          />
+                        ) : (
+                          <span className="task-when">
+                            <span className="task-when-date muted">—</span>
+                            <span className="task-when-time">Not finished</span>
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <span className="task-when">
+                          <span className="task-when-date">
+                            {formatTaskDate(task.lastEntryDate)}
+                          </span>
+                          <span className="task-when-time">
+                            <time dateTime={task.lastEntryAt}>
+                              {formatTime(new Date(task.lastEntryAt))}
+                            </time>
+                            {` · ${task.entryCount} ${task.entryCount === 1 ? 'entry' : 'entries'}`}
+                          </span>
+                        </span>
                       </td>
                     </tr>
                   ))}

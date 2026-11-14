@@ -1,5 +1,9 @@
 import ExcelJS from 'exceljs';
-import { DAILY_TASK_COLUMNS, DAILY_TASKS_SHEET_NAME } from './workbook.constants.js';
+import {
+  DAILY_TASK_COLUMNS,
+  DAILY_TASKS_SHEET_NAME,
+  WORK_DETAIL_FIRST_COLUMN,
+} from './workbook.constants.js';
 
 /** A data row of the "Daily Tasks" sheet, with its internal references. */
 export interface WorkbookRow {
@@ -11,6 +15,15 @@ export interface WorkbookRow {
   description: string;
   reference: string;
   status: string;
+  project: string;
+  assignedBy: string;
+  priority: string;
+  dueDate: string;
+  startTime: string;
+  endTime: string;
+  /** Hours as a number; null when no working time was recorded. */
+  hoursWorked: number | null;
+  remarks: string;
 }
 
 const TASK_ID_COLUMN = DAILY_TASK_COLUMNS.length + 1; // G
@@ -30,6 +43,9 @@ export async function readWorkbookRows(file: Buffer): Promise<WorkbookRow[]> {
       return;
     }
     const date = row.getCell(2).value;
+    const detail = (offset: number) => row.getCell(WORK_DETAIL_FIRST_COLUMN + offset);
+    const dueDate = detail(3).value;
+    const hours = detail(6).value;
     rows.push({
       taskId: row.getCell(TASK_ID_COLUMN).text,
       taskUpdateId: row.getCell(UPDATE_ID_COLUMN).text,
@@ -39,6 +55,14 @@ export async function readWorkbookRows(file: Buffer): Promise<WorkbookRow[]> {
       description: row.getCell(4).text,
       reference: row.getCell(5).text,
       status: row.getCell(6).text,
+      project: detail(0).text,
+      assignedBy: detail(1).text,
+      priority: detail(2).text,
+      dueDate: dueDate instanceof Date ? dueDate.toISOString().slice(0, 10) : detail(3).text,
+      startTime: detail(4).text,
+      endTime: detail(5).text,
+      hoursWorked: typeof hours === 'number' ? hours : null,
+      remarks: detail(7).text,
     });
   });
   return rows;

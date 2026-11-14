@@ -1,6 +1,19 @@
 export type TaskStatus = 'TO_DO' | 'IN_PROGRESS' | 'PENDING' | 'COMPLETED' | 'ON_HOLD';
 
-export interface Task {
+export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH';
+
+/** Details of the task itself; the same for all of its daily entries. */
+export interface TaskDetails {
+  /** Who gave the task (manager, team lead, client...). */
+  assignedBy: string | null;
+  priority: TaskPriority | null;
+  /** Project or module the task belongs to. */
+  project: string | null;
+  /** Deadline, YYYY-MM-DD. */
+  dueDate: string | null;
+}
+
+export interface Task extends TaskDetails {
   id: string;
   workbookId: string;
   taskNumber: number;
@@ -21,6 +34,13 @@ export interface TaskUpdate {
   status: TaskStatus;
   description: string;
   reference: string | null;
+  /** Working hours of the day, "HH:MM" (24 hours). */
+  startTime: string | null;
+  endTime: string | null;
+  /** Minutes between start and end time; null unless both are set. */
+  minutesWorked: number | null;
+  /** Blockers or notes for the manager. */
+  remarks: string | null;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -47,16 +67,51 @@ export interface RecentTaskUpdate extends TaskUpdate {
   taskName: string;
 }
 
-export interface TaskEntryInput {
-  entryDate: string;
+/** What one day's entry records (everything except its date). */
+export interface TaskWorkInput {
   description: string;
   reference: string | null;
   status: TaskStatus;
+  startTime: string | null;
+  endTime: string | null;
+  remarks: string | null;
 }
 
-export interface CreateTaskInput extends TaskEntryInput {
+export interface TaskEntryInput extends TaskWorkInput {
+  entryDate: string;
+}
+
+export interface CreateTaskInput extends TaskEntryInput, TaskDetails {
   workbookId?: string;
   name: string;
+}
+
+/** One daily entry in a work report, with its task. */
+export interface ReportEntry extends TaskUpdate {
+  task: Task;
+  workbookName: string;
+}
+
+export interface ReportTotals {
+  entries: number;
+  /** Different tasks worked on. */
+  tasks: number;
+  /** Of those, tasks that are completed now. */
+  completedTasks: number;
+  daysWorked: number;
+  minutesWorked: number;
+  /** Entries without a start and end time (not counted in the working time). */
+  entriesWithoutTime: number;
+}
+
+export interface TaskReport {
+  from: string | null;
+  to: string | null;
+  totals: ReportTotals;
+  /** Oldest date first. */
+  entries: ReportEntry[];
+  /** More entries exist than are returned. */
+  truncated: boolean;
 }
 
 export interface WorkbookRef {
@@ -68,6 +123,12 @@ export interface TaskListItem extends Task {
   workbook: WorkbookRef;
   latestDescription: string;
   latestReference: string | null;
+  /** Last change to the task or its entries. */
+  updatedAt: string;
+  /** When the latest entry was last saved. */
+  lastEntryAt: string;
+  /** When the latest entry was saved as Completed; null while the task is open. */
+  completedAt: string | null;
 }
 
 export interface TaskPage {
@@ -79,7 +140,12 @@ export interface TaskPage {
 }
 
 export type TaskHistoryAction =
-  'TASK_CREATED' | 'ENTRY_ADDED' | 'ENTRY_UPDATED' | 'TASK_RENAMED' | 'TASK_DELETED';
+  | 'TASK_CREATED'
+  | 'ENTRY_ADDED'
+  | 'ENTRY_UPDATED'
+  | 'TASK_RENAMED'
+  | 'TASK_DELETED'
+  | 'TASK_UPDATED';
 
 export interface TaskHistoryEntry {
   id: string;
