@@ -33,14 +33,20 @@ test.describe('task management page', () => {
     await page.getByRole('button', { name: 'Clear filters' }).click();
     await expect(rows).toHaveCount(4);
 
-    // Edit task #3 from its detail page.
+    // Edit task #3 from its detail page: the name in the Details card...
     await page.getByRole('link', { name: 'Report 03' }).click();
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await page.getByLabel('Task Name').fill('Report 03 (final)');
-    await page.getByLabel('Task Description').fill('Final version sent.');
     await page.getByRole('button', { name: 'Save changes' }).click();
     await expect(page.getByText(/Task #3 was updated/)).toBeVisible();
     await expect(page.getByRole('heading', { name: /Report 03 \(final\)/ })).toBeVisible();
+
+    // ...and the day's description with the entry's own Edit button.
+    await page.getByRole('button', { name: /^Edit entry from/ }).click();
+    await page.getByLabel('Description', { exact: true }).fill('Final version sent.');
+    await page.getByRole('button', { name: 'Save entry' }).click();
+    await expect(page.getByText(/The entry from .* was updated/)).toBeVisible();
+    await expect(page.getByText('Final version sent.')).toBeVisible();
 
     // Delete task #4 (after confirmation).
     await page.goto('/tasks');
