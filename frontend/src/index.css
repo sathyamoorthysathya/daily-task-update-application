@@ -451,45 +451,6 @@ button:focus-visible {
   font-size: 0.88rem;
 }
 
-/* Password Toggle Field Enhancement */
-.input-wrapper {
-  position: relative;
-  display: flex;
-  align-items: center;
-  width: 100%;
-}
-
-.input-wrapper input {
-  width: 100%;
-}
-
-.field--password .input-wrapper input {
-  padding-right: 42px;
-}
-
-.password-toggle-btn {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  color: var(--text-muted);
-  display: grid;
-  place-items: center;
-  padding: 6px;
-  border-radius: 6px;
-  transition:
-    color 0.15s ease,
-    background-color 0.15s ease;
-}
-
-.password-toggle-btn:hover {
-  color: var(--text);
-  background-color: var(--neutral-bg);
-}
-
 /* Dark Mode Appearance for Auth Card */
 @media (prefers-color-scheme: dark) {
   .auth-card {
