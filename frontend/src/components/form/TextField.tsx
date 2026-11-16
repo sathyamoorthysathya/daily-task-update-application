@@ -35,7 +35,7 @@ export function TextField({ label, error, hint, type, ...inputProps }: TextField
             type="button"
             className="password-toggle-btn"
             onClick={() => setShowPassword((prev) => !prev)}
-            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            aria-label={showPassword ? 'Hide text' : 'Show text'}
             tabIndex={-1}
           >
             {showPassword ? (
