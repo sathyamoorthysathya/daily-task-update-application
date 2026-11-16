@@ -43,11 +43,11 @@ test.describe('authentication', () => {
 
     await fresh.goto('/login');
     await fresh.getByLabel('Email').fill(user.email);
-    await fresh.getByLabel('Password').fill('Wrong-password-9');
+    await fresh.getByLabel('Password', { exact: true }).fill('Wrong-password-9');
     await fresh.getByRole('button', { name: 'Sign in' }).click();
     await expect(fresh.getByRole('alert')).toContainText('Invalid email or password');
 
-    await fresh.getByLabel('Password').fill(PASSWORD);
+    await fresh.getByLabel('Password', { exact: true }).fill(PASSWORD);
     await fresh.getByRole('button', { name: 'Sign in' }).click();
     await expect(fresh).not.toHaveURL(/\/login/);
 
