@@ -14,7 +14,7 @@ test.describe('authentication', () => {
     await page.goto('/register');
     await page.getByLabel('Name').fill('Rita Register');
     await page.getByLabel('Email').fill(uniqueEmail('register'));
-    await page.getByLabel('Password').fill(PASSWORD);
+    await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
     await page.getByLabel('Confirm password').fill(PASSWORD);
     await page.getByRole('button', { name: 'Create account' }).click();
 
@@ -28,7 +28,7 @@ test.describe('authentication', () => {
 
   test('validates the registration form in the browser', async ({ page }) => {
     await page.goto('/register');
-    await page.getByLabel('Password').fill('short');
+    await page.getByLabel('Password', { exact: true }).fill('short');
     await page.getByRole('button', { name: 'Create account' }).click();
     await expect(page.getByText('Password must be at least 8 characters')).toBeVisible();
     await expect(page).toHaveURL(/\/register/);
@@ -43,11 +43,11 @@ test.describe('authentication', () => {
 
     await fresh.goto('/login');
     await fresh.getByLabel('Email').fill(user.email);
-    await fresh.getByLabel('Password').fill('Wrong-password-9');
+    await fresh.getByLabel('Password', { exact: true }).fill('Wrong-password-9');
     await fresh.getByRole('button', { name: 'Sign in' }).click();
     await expect(fresh.getByRole('alert')).toContainText('Invalid email or password');
 
-    await fresh.getByLabel('Password').fill(PASSWORD);
+    await fresh.getByLabel('Password', { exact: true }).fill(PASSWORD);
     await fresh.getByRole('button', { name: 'Sign in' }).click();
     await expect(fresh).not.toHaveURL(/\/login/);
 
