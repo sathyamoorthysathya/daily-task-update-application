@@ -25,6 +25,9 @@ interface ResolvedError {
   details?: unknown;
 }
 
+/** 403 refusals whose service already wrote a more specific audit event. */
+const SELF_AUDITED_CODES = new Set(['ACCOUNT_DISABLED', 'ADMIN_IP_NOT_ALLOWED']);
+
 interface FieldError {
   field: string;
   message: string;
@@ -90,7 +93,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
     } else if (statusCode >= 500) {
       this.logger.error({ event: 'http.error', status: statusCode, ...context, message });
-    } else if (statusCode === 403 && this.audit) {
+    } else if (statusCode === 403 && this.audit && !(code && SELF_AUDITED_CODES.has(code))) {
       // Authorization and CSRF refusals are security-relevant.
       void this.audit.record({
         event: 'access.denied',
@@ -100,6 +103,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
       });
     }
 
+    if (statusCode === Number(HttpStatus.TOO_MANY_REQUESTS)) {
+      setStandardRetryAfter(ctx.getResponse());
+    }
     httpAdapter.reply(ctx.getResponse(), body, statusCode);
   }
 
@@ -138,6 +144,28 @@ export class AllExceptionsFilter implements ExceptionFilter {
         message: 'Internal server error',
       }
     );
+  }
+}
+
+/**
+ * The rate limiter names its header per limit ("Retry-After-login"); standard clients read
+ * "Retry-After" (seconds). Set it to the longest wait of the limits that were hit.
+ */
+function setStandardRetryAfter(response: {
+  getHeaderNames?: () => string[];
+  getHeader?: (name: string) => unknown;
+  setHeader?: (name: string, value: string) => void;
+}): void {
+  if (!response.getHeaderNames || !response.getHeader || !response.setHeader) {
+    return;
+  }
+  const waits = response
+    .getHeaderNames()
+    .filter((name) => name.toLowerCase().startsWith('retry-after'))
+    .map((name) => Number(response.getHeader?.(name)))
+    .filter((seconds) => Number.isFinite(seconds) && seconds > 0);
+  if (waits.length > 0) {
+    response.setHeader('Retry-After', String(Math.ceil(Math.max(...waits))));
   }
 }
 

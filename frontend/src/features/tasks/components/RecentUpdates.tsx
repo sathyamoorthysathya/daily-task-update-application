@@ -1,6 +1,7 @@
 import { formatTaskDate } from '../tasks.schemas';
 import type { RecentTaskUpdate } from '../task.types';
 import { StatusBadge } from './StatusBadge';
+import { RecentEntriesSkeleton } from '../../../components/Skeletons';
 
 interface Props {
   updates: RecentTaskUpdate[] | null;
@@ -12,7 +13,7 @@ export function RecentUpdates({ updates, workbookName }: Props) {
   return (
     <section className="card" aria-labelledby="recent-heading">
       <h2 id="recent-heading">Recent entries{workbookName ? ` in ${workbookName}` : ''}</h2>
-      {updates === null && <p className="muted">Loading…</p>}
+      {updates === null && <RecentEntriesSkeleton />}
       {updates?.length === 0 && (
         <p className="muted">No tasks yet. Your first task will appear here.</p>
       )}

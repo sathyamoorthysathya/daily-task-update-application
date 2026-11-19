@@ -1,4 +1,5 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, VERSION_NEUTRAL } from '@nestjs/common';
+import { API_VERSION } from '../../common/versioning.js';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   HealthCheck,
@@ -15,7 +16,9 @@ const DATABASE_PING_TIMEOUT_MS = 1500;
 
 @ApiTags('Health')
 @Public()
-@Controller('health')
+// Versioned like every route (/api/v1/health) and also at /api/health, the stable URL used by
+// Docker, load balancer and uptime checks.
+@Controller({ path: 'health', version: [API_VERSION, VERSION_NEUTRAL] })
 export class HealthController {
   constructor(
     private readonly health: HealthCheckService,

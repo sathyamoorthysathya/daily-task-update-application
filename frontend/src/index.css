@@ -211,11 +211,239 @@ button:focus-visible {
   gap: 12px;
 }
 
-.page-loader {
+/* ---------------------------------------------------------------- Loading & network */
+
+/* Small spinner (used by the slow-connection notice). */
+.loader-spinner {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Loading previews (see components/Skeletons.tsx); the shimmer is `.skeleton`. */
+.skeleton-shapes {
+  display: contents;
+}
+
+.skeleton-bone {
+  display: block;
+  flex: none;
+  max-width: 100%;
+}
+
+.skeleton.skeleton-bone--line {
+  border-radius: 6px;
+}
+
+.skeleton.skeleton-bone--block {
+  border-radius: 10px;
+}
+
+.skeleton.skeleton-bone--circle {
+  border-radius: 50%;
+}
+
+.skeleton.skeleton-bone--pill {
+  border-radius: 999px;
+}
+
+.skeleton-stack {
   display: grid;
-  place-items: center;
-  min-height: 100vh;
-  color: var(--text-muted);
+  gap: 10px;
+  min-width: 0;
+}
+
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.skeleton-grow {
+  flex: 1 1 auto;
+}
+
+.skeleton-push {
+  margin-left: auto;
+}
+
+.skeleton-gap {
+  margin-top: 20px;
+}
+
+.skeleton-page {
+  display: grid;
+  gap: 20px;
+}
+
+.skeleton-header {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.skeleton-header--bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.skeleton-field {
+  display: grid;
+  gap: 8px;
+}
+
+.skeleton-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.skeleton-rows {
+  display: grid;
+  gap: 18px;
+  padding: 8px 0;
+}
+
+.skeleton-list {
+  margin-top: 0;
+}
+
+.skeleton-entry {
+  display: grid;
+  gap: 10px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+
+.skeleton-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+}
+
+.skeleton-profile {
+  gap: 20px;
+}
+
+.skeleton-sidebar-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 14px 24px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--accent-soft);
+}
+
+.skeleton-nav {
+  gap: 22px;
+  padding: 0 22px;
+}
+
+.skeleton-auth-head {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .skeleton-hide-narrow {
+    display: none;
+  }
+
+  /* Title on its own line, buttons below (as on the real page). */
+  .skeleton-header--bar > .skeleton-grow {
+    flex-basis: 100%;
+  }
+}
+
+/* Thin bar at the very top while the app waits for the server. */
+.top-progress {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 1000;
+  height: 3px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.top-progress[data-active] {
+  opacity: 1;
+}
+
+.top-progress::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  background: var(--accent);
+  border-radius: 0 3px 3px 0;
+  animation: top-progress 1.2s ease-in-out infinite;
+}
+
+@keyframes top-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+/* Offline / slow-connection notice, bottom centre, above everything. */
+.network-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 0.92rem;
+  transform: translateX(-50%);
+}
+
+.network-banner--offline {
+  border-color: var(--danger-fg);
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loader-spinner {
+    animation-duration: 2.4s;
+  }
+
+  .top-progress::before {
+    animation: none;
+    width: 100%;
+    opacity: 0.6;
+  }
 }
 
 /*
@@ -509,26 +737,12 @@ a {
   font-size: 0.9rem;
 }
 
-/* 12-hour time picker: hour, minute and AM/PM side by side. */
-.time-field {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.time-field select {
-  flex: 1 1 0;
-  min-width: 0;
-  padding-inline: 8px;
+/* Time picker: one drop-down of 12-hour times. */
+.time-select {
   font-variant-numeric: tabular-nums;
 }
 
-.time-field > span {
-  color: var(--text-muted);
-  font-weight: 700;
-}
-
-.time-field[data-invalid] select {
+.field select.time-select[aria-invalid='true'] {
   border-color: var(--danger-fg);
 }
 
@@ -1278,6 +1492,69 @@ a.button:focus-visible {
   font-size: 0.7rem;
   font-weight: 600;
   opacity: 0.75;
+}
+
+/* Columns the user added: same header style in Excel, told apart here. */
+.sheet-preview-cell--extra {
+  background: #1e7a52;
+}
+
+.sheet-preview-note {
+  margin-top: 8px;
+}
+
+.extra-column-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.extra-column-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 3px 3px 3px 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.extra-column-chip > span {
+  overflow-wrap: anywhere;
+}
+
+.extra-column-remove {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.extra-column-remove:hover,
+.extra-column-remove:focus-visible {
+  background: var(--border);
+  color: var(--text);
+}
+
+.extra-column-add {
+  display: flex;
+  gap: 8px;
+}
+
+.extra-column-add input {
+  flex: 1 1 auto;
 }
 
 /* ---------------------------------------------------------------- Tasks */

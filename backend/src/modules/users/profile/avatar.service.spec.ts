@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { UnprocessableEntityException } from '@nestjs/common';
 import sharp from 'sharp';
 import { AVATAR_MAX_UPLOAD_BYTES, AvatarService, detectImageKind } from './avatar.service.js';
 
@@ -57,7 +57,7 @@ describe('AvatarService', () => {
   });
 
   it('rejects empty and oversized uploads', async () => {
-    await expect(service.process(undefined)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.process(undefined)).rejects.toBeInstanceOf(UnprocessableEntityException);
     await expect(
       service.process(Buffer.alloc(AVATAR_MAX_UPLOAD_BYTES + 1, 1)),
     ).rejects.toMatchObject({

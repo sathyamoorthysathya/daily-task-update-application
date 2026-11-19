@@ -17,6 +17,7 @@ interface TaskDto {
   status: string;
   lastEntryDate: string;
   entryCount: number;
+  version: number;
 }
 
 interface UpdateDto {
@@ -66,7 +67,7 @@ describe('Daily task management (e2e)', () => {
   }
 
   async function workbook(client: AuthTestClient, name: string, makeDefault = false) {
-    const res = await client.post('/api/workbooks', { name, makeDefault }).expect(201);
+    const res = await client.post('/api/v1/workbooks', { name, makeDefault }).expect(201);
     return (res.body as { id: string }).id;
   }
 
@@ -77,7 +78,7 @@ describe('Daily task management (e2e)', () => {
   }
 
   const createTask = (client: AuthTestClient, body: object) =>
-    client.post('/api/tasks', { ...BASE_TASK, ...body });
+    client.post('/api/v1/tasks', { ...BASE_TASK, ...body });
 
   /** Runs the queued Excel sync jobs (the background worker is disabled in e2e tests). */
   const drain = () => app.get(ExcelSyncWorker).drain();
@@ -162,7 +163,7 @@ describe('Daily task management (e2e)', () => {
         status: 'PENDING',
         targetDataVersion: 1,
       });
-      expect((await client.get(`/api/workbooks/${workbookId}`)).body.syncStatus).toBe('pending');
+      expect((await client.get(`/api/v1/workbooks/${workbookId}`)).body.syncStatus).toBe('pending');
 
       const history = await prisma.taskHistory.findMany({ where: { taskId: result.task.id } });
       expect(history).toHaveLength(1);
@@ -179,7 +180,7 @@ describe('Daily task management (e2e)', () => {
           status: 'In Progress',
         },
       ]);
-      const wb = (await client.get(`/api/workbooks/${workbookId}`)).body as {
+      const wb = (await client.get(`/api/v1/workbooks/${workbookId}`)).body as {
         taskCount: number;
         nextTaskNumber: number;
         syncStatus: string;
@@ -209,14 +210,14 @@ describe('Daily task management (e2e)', () => {
       const { client } = await userWithWorkbook('validate');
 
       const res = await client
-        .post('/api/tasks', {
+        .post('/api/v1/tasks', {
           name: ' ',
           entryDate: '2026-02-30',
           description: '',
           reference: 'javascript:alert(1)',
           status: 'DONE',
         })
-        .expect(400);
+        .expect(422);
 
       expect(res.body.code).toBe('VALIDATION_FAILED');
       expect((res.body.errors as { field: string }[]).map((e) => e.field).sort()).toEqual([
@@ -226,7 +227,46 @@ describe('Daily task management (e2e)', () => {
         'reference',
         'status',
       ]);
-      await createTask(client, { taskNumber: 42 }).expect(400);
+      await createTask(client, { taskNumber: 4.5 }).expect(422);
+      await createTask(client, { taskId: 'x' }).expect(422);
+    });
+  });
+
+  describe('choosing a task number', () => {
+    it('uses the chosen number, continues automatically after it and never reuses a number', async () => {
+      const { client } = await userWithWorkbook('own-number');
+      const numberOf = (res: { body: unknown }) => (res.body as SaveResult).task.taskNumber;
+
+      expect(numberOf(await createTask(client, { name: 'Auto' }).expect(201))).toBe(1);
+      expect(numberOf(await createTask(client, { name: 'Own', taskNumber: 10 }).expect(201))).toBe(
+        10,
+      );
+      // Automatic numbers continue after the highest one.
+      expect(numberOf(await createTask(client, { name: 'Next' }).expect(201))).toBe(11);
+      // A free number below it can still be chosen.
+      expect(numberOf(await createTask(client, { name: 'Gap', taskNumber: 5 }).expect(201))).toBe(
+        5,
+      );
+      expect(numberOf(await createTask(client, { name: 'After gap' }).expect(201))).toBe(12);
+
+      const taken = await createTask(client, { name: 'Clash', taskNumber: 10 }).expect(409);
+      expect(taken.body).toMatchObject({
+        code: 'TASK_NUMBER_TAKEN',
+        errors: [{ field: 'taskNumber' }],
+      });
+      await createTask(client, { name: 'Zero', taskNumber: 0 }).expect(422);
+      await createTask(client, { name: 'Text', taskNumber: '7' }).expect(422);
+    });
+
+    it('does not reuse the number of a deleted task', async () => {
+      const { client } = await userWithWorkbook('own-number-deleted');
+      const created = (await createTask(client, { taskNumber: 3 }).expect(201)).body as SaveResult;
+      await client.agent
+        .delete(`/api/v1/tasks/${created.task.id}?version=${created.task.version}`)
+        .set('X-CSRF-Token', client.csrfToken)
+        .expect(200);
+
+      await createTask(client, { name: 'Again', taskNumber: 3 }).expect(409);
     });
   });
 
@@ -261,12 +301,12 @@ describe('Daily task management (e2e)', () => {
 
       const found = await client
         .get(
-          `/api/tasks/lookup?workbookId=${workbookId}&name=PREPARE%20gst%20report&entryDate=2026-11-05`,
+          `/api/v1/tasks/lookup?workbookId=${workbookId}&name=PREPARE%20gst%20report&entryDate=2026-11-05`,
         )
         .expect(200);
       expect(found.body.match).toMatchObject({ task: { taskNumber: 1 }, hasUpdateOnDate: true });
 
-      const none = await client.get('/api/tasks/lookup?name=Something%20else').expect(200);
+      const none = await client.get('/api/v1/tasks/lookup?name=Something%20else').expect(200);
       expect(none.body).toEqual({ match: null });
     });
 
@@ -289,7 +329,7 @@ describe('Daily task management (e2e)', () => {
       const original = (await createTask(client, {}).expect(201)).body as SaveResult;
 
       const res = await client
-        .post(`/api/tasks/${original.task.id}/updates`, {
+        .post(`/api/v1/tasks/${original.task.id}/updates`, {
           entryDate: '2026-11-06',
           description: 'Filed the return.',
           reference: '',
@@ -339,7 +379,7 @@ describe('Daily task management (e2e)', () => {
       const original = (await createTask(client, {}).expect(201)).body as SaveResult;
 
       const res = await client
-        .post(`/api/tasks/${original.task.id}/updates`, {
+        .post(`/api/v1/tasks/${original.task.id}/updates`, {
           entryDate: '2026-11-05',
           description: 'Again',
           status: 'PENDING',
@@ -358,7 +398,7 @@ describe('Daily task management (e2e)', () => {
       ).body as SaveResult;
 
       const res = await client
-        .post(`/api/tasks/${original.task.id}/updates`, {
+        .post(`/api/v1/tasks/${original.task.id}/updates`, {
           entryDate: '2026-11-01',
           description: 'Started',
           status: 'TO_DO',
@@ -375,7 +415,7 @@ describe('Daily task management (e2e)', () => {
       const { client, workbookId } = await userWithWorkbook('edit');
       const original = (await createTask(client, {}).expect(201)).body as SaveResult;
       await client
-        .post(`/api/tasks/${original.task.id}/updates`, {
+        .post(`/api/v1/tasks/${original.task.id}/updates`, {
           entryDate: '2026-11-06',
           description: 'Day two',
           status: 'IN_PROGRESS',
@@ -383,7 +423,7 @@ describe('Daily task management (e2e)', () => {
         .expect(201);
 
       const res = await client
-        .patch(`/api/tasks/${original.task.id}/updates/${original.update.id}`, {
+        .patch(`/api/v1/tasks/${original.task.id}/updates/${original.update.id}`, {
           description: 'Collected and verified invoices.',
           reference: null,
           status: 'PENDING',
@@ -418,7 +458,7 @@ describe('Daily task management (e2e)', () => {
 
       // A stale version is rejected.
       const stale = await client
-        .patch(`/api/tasks/${original.task.id}/updates/${original.update.id}`, {
+        .patch(`/api/v1/tasks/${original.task.id}/updates/${original.update.id}`, {
           description: 'Overwrite',
           status: 'COMPLETED',
           version: 1,
@@ -434,21 +474,21 @@ describe('Daily task management (e2e)', () => {
       const { client } = await userWithWorkbook('detail');
       const original = (await createTask(client, {}).expect(201)).body as SaveResult;
       await client
-        .post(`/api/tasks/${original.task.id}/updates`, {
+        .post(`/api/v1/tasks/${original.task.id}/updates`, {
           entryDate: '2026-11-06',
           description: 'Next',
           status: 'COMPLETED',
         })
         .expect(201);
 
-      const detail = (await client.get(`/api/tasks/${original.task.id}`).expect(200)).body as {
+      const detail = (await client.get(`/api/v1/tasks/${original.task.id}`).expect(200)).body as {
         updates: UpdateDto[];
         history: { action: string }[];
       };
 
       expect(detail.updates.map((u) => u.entryDate)).toEqual(['2026-11-06', '2026-11-05']);
       expect(detail.history.map((h) => h.action)).toEqual(['TASK_CREATED', 'ENTRY_ADDED']);
-      const recent = await client.get('/api/tasks/recent-updates?limit=1').expect(200);
+      const recent = await client.get('/api/v1/tasks/recent-updates?limit=1').expect(200);
       expect(recent.body.updates).toEqual([
         expect.objectContaining({
           entryDate: '2026-11-06',
@@ -471,15 +511,15 @@ describe('Daily task management (e2e)', () => {
         where: { id: workbookId },
         data: { dataVersion: { increment: 1 } },
       });
-      expect((await client.get(`/api/workbooks/${workbookId}`)).body.syncStatus).toBe('pending');
+      expect((await client.get(`/api/v1/workbooks/${workbookId}`)).body.syncStatus).toBe('pending');
 
-      const resync = await client.post(`/api/workbooks/${workbookId}/sync`).expect(202);
+      const resync = await client.post(`/api/v1/workbooks/${workbookId}/sync`).expect(202);
 
       expect(resync.body).toMatchObject({ workbookId, state: 'pending', pendingJobs: 1 });
       expect((await excelRows(workbookId))[0]?.description).toBe(
         'Changed while the sync was failing',
       );
-      expect((await client.get(`/api/workbooks/${workbookId}/sync-status`)).body).toMatchObject({
+      expect((await client.get(`/api/v1/workbooks/${workbookId}/sync-status`)).body).toMatchObject({
         state: 'synced',
         pendingJobs: 0,
       });
@@ -536,7 +576,7 @@ describe('Daily task management (e2e)', () => {
 
       // A later day of the same task has its own hours and remarks.
       await client
-        .post(`/api/tasks/${created.task.id}/updates`, {
+        .post(`/api/v1/tasks/${created.task.id}/updates`, {
           entryDate: '2026-11-06',
           description: 'Filed the return.',
           status: 'COMPLETED',
@@ -570,7 +610,7 @@ describe('Daily task management (e2e)', () => {
     it('rejects an end time that is not after the start time', async () => {
       const { client } = await userWithWorkbook('details-bad');
 
-      const res = await createTask(client, { startTime: '13:00', endTime: '09:00' }).expect(400);
+      const res = await createTask(client, { startTime: '13:00', endTime: '09:00' }).expect(422);
       expect(JSON.stringify(res.body)).toContain('The end time must be after the start time');
     });
 
@@ -580,7 +620,7 @@ describe('Daily task management (e2e)', () => {
 
       const edited = (
         await client
-          .patch(`/api/tasks/${created.task.id}/updates/${created.update.id}`, {
+          .patch(`/api/v1/tasks/${created.task.id}/updates/${created.update.id}`, {
             description: BASE_TASK.description,
             reference: BASE_TASK.reference,
             status: BASE_TASK.status,
@@ -607,11 +647,13 @@ describe('Daily task management (e2e)', () => {
       const { client } = await userWithWorkbook('details-task');
       const created = (await createTask(client, DETAILS).expect(201)).body as SaveResult;
       const version = (
-        (await client.get(`/api/tasks/${created.task.id}`).expect(200)).body as { version: number }
+        (await client.get(`/api/v1/tasks/${created.task.id}`).expect(200)).body as {
+          version: number;
+        }
       ).version;
 
       const res = await client
-        .patch(`/api/tasks/${created.task.id}`, {
+        .patch(`/api/v1/tasks/${created.task.id}`, {
           name: BASE_TASK.name,
           priority: 'LOW',
           assignedBy: '',
@@ -637,7 +679,7 @@ describe('Daily task management (e2e)', () => {
       const { client } = await userWithWorkbook('report');
       const first = (await createTask(client, DETAILS).expect(201)).body as SaveResult;
       await client
-        .post(`/api/tasks/${first.task.id}/updates`, {
+        .post(`/api/v1/tasks/${first.task.id}/updates`, {
           entryDate: '2026-11-06',
           description: 'Filed the return.',
           status: 'COMPLETED',
@@ -658,7 +700,7 @@ describe('Daily task management (e2e)', () => {
         truncated: boolean;
       }
       const november = (
-        await client.get('/api/tasks/report?from=2026-11-01&to=2026-11-30').expect(200)
+        await client.get('/api/v1/tasks/report?from=2026-11-01&to=2026-11-30').expect(200)
       ).body as Report;
       expect(november.totals).toEqual({
         entries: 2,
@@ -678,16 +720,16 @@ describe('Daily task management (e2e)', () => {
       });
       expect(november.truncated).toBe(false);
 
-      const overall = (await client.get('/api/tasks/report').expect(200)).body as Report;
+      const overall = (await client.get('/api/v1/tasks/report').expect(200)).body as Report;
       expect(overall.from).toBeNull();
       expect(overall.totals).toMatchObject({ entries: 3, tasks: 2, entriesWithoutTime: 1 });
       expect(overall.entries[0]!.task.name).toBe('Older work');
 
-      await client.get('/api/tasks/report?from=2026-11-30&to=2026-11-01').expect(400);
+      await client.get('/api/v1/tasks/report?from=2026-11-30&to=2026-11-01').expect(422);
 
       // The same report as an Excel file.
       const file = await client
-        .get('/api/tasks/report/download?from=2026-11-01&to=2026-11-30')
+        .get('/api/v1/tasks/report/download?from=2026-11-01&to=2026-11-30')
         .buffer(true)
         .parse((res, done) => {
           const chunks: Buffer[] = [];
@@ -714,7 +756,7 @@ describe('Daily task management (e2e)', () => {
 
       // And as a PDF.
       const pdf = await client
-        .get('/api/tasks/report/download?format=pdf')
+        .get('/api/v1/tasks/report/download?format=pdf')
         .buffer(true)
         .parse((res, done) => {
           const chunks: Buffer[] = [];
@@ -725,9 +767,9 @@ describe('Daily task management (e2e)', () => {
       expect(pdf.headers['content-type']).toBe('application/pdf');
       expect(pdf.headers['content-disposition']).toContain('filename="Work report - all work.pdf"');
       expect((pdf.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
-      await client.get('/api/tasks/report/download?format=docx').expect(400);
+      await client.get('/api/v1/tasks/report/download?format=docx').expect(422);
       const other = await userWithWorkbook('report-other');
-      const empty = (await other.client.get('/api/tasks/report').expect(200)).body as Report;
+      const empty = (await other.client.get('/api/v1/tasks/report').expect(200)).body as Report;
       expect(empty.totals.entries).toBe(0);
     });
   });
@@ -750,13 +792,13 @@ describe('Daily task management (e2e)', () => {
       await workbook(client, 'Second');
       await prisma.user.update({ where: { id: userId }, data: { defaultWorkbookId: null } });
 
-      const res = await createTask(client, {}).expect(400);
+      const res = await createTask(client, {}).expect(422);
       expect(res.body.code).toBe('WORKBOOK_SELECTION_REQUIRED');
     });
 
     it('requires a workbook to exist', async () => {
       const { client } = await signedIn('no-wb');
-      expect((await createTask(client, {}).expect(400)).body.code).toBe('NO_WORKBOOK');
+      expect((await createTask(client, {}).expect(422)).body.code).toBe('NO_WORKBOOK');
     });
   });
 
@@ -766,16 +808,16 @@ describe('Daily task management (e2e)', () => {
       const bob = await userWithWorkbook('bob');
       const task = (await createTask(alice.client, {}).expect(201)).body as SaveResult;
 
-      await bob.client.get(`/api/tasks/${task.task.id}`).expect(404);
+      await bob.client.get(`/api/v1/tasks/${task.task.id}`).expect(404);
       await bob.client
-        .post(`/api/tasks/${task.task.id}/updates`, {
+        .post(`/api/v1/tasks/${task.task.id}/updates`, {
           entryDate: '2026-11-06',
           description: 'x',
           status: 'TO_DO',
         })
         .expect(404);
       await bob.client
-        .patch(`/api/tasks/${task.task.id}/updates/${task.update.id}`, {
+        .patch(`/api/v1/tasks/${task.task.id}/updates/${task.update.id}`, {
           description: 'Hacked',
           status: 'COMPLETED',
           version: 1,
@@ -783,18 +825,18 @@ describe('Daily task management (e2e)', () => {
         .expect(404);
       // Bob cannot add tasks to Alice's workbook either.
       await createTask(bob.client, { workbookId: alice.workbookId, name: 'Intrusion' }).expect(404);
-      await bob.client.get(`/api/tasks?workbookId=${alice.workbookId}`).expect(404);
+      await bob.client.get(`/api/v1/tasks?workbookId=${alice.workbookId}`).expect(404);
 
       // Duplicate detection only looks at Bob's own data.
       await createTask(bob.client, {}).expect(201);
       expect(
-        (await bob.client.get('/api/tasks/recent-updates').expect(200)).body.updates,
+        (await bob.client.get('/api/v1/tasks/recent-updates').expect(200)).body.updates,
       ).toHaveLength(1);
       expect(await excelRows(alice.workbookId)).toHaveLength(1);
 
       const anonymous = await AuthTestClient.create(app);
-      await anonymous.get('/api/tasks').expect(401);
-      await anonymous.post('/api/tasks', BASE_TASK).expect(401);
+      await anonymous.get('/api/v1/tasks').expect(401);
+      await anonymous.post('/api/v1/tasks', BASE_TASK).expect(401);
     });
   });
 
@@ -840,7 +882,7 @@ describe('Daily task management (e2e)', () => {
 
       const results = await Promise.all(
         Array.from({ length: 4 }, (_, i) =>
-          client.post(`/api/tasks/${original.task.id}/updates`, {
+          client.post(`/api/v1/tasks/${original.task.id}/updates`, {
             entryDate: '2026-11-06',
             description: `Attempt ${i}`,
             status: 'IN_PROGRESS',
@@ -856,7 +898,7 @@ describe('Daily task management (e2e)', () => {
     it('lets only one of two concurrent edits of the same version win', async () => {
       const { client } = await userWithWorkbook('race-edit');
       const original = (await createTask(client, {}).expect(201)).body as SaveResult;
-      const url = `/api/tasks/${original.task.id}/updates/${original.update.id}`;
+      const url = `/api/v1/tasks/${original.task.id}/updates/${original.update.id}`;
 
       const [a, b] = await Promise.all([
         client.patch(url, { description: 'From tab A', status: 'COMPLETED', version: 1 }),

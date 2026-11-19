@@ -1,13 +1,16 @@
 import { env } from '../../config/env';
 import { ApiError } from './api-error';
 import { CSRF_HEADER, getCsrfToken, resetCsrfToken } from './csrf';
-import { emitSessionExpired } from './session-events';
+import { trackRequest } from './network-activity';
+import { emitAdminSessionExpired, emitSessionExpired } from './session-events';
 
 export interface RequestOptions extends Omit<RequestInit, 'body'> {
   /** Sent as-is when FormData (file uploads), otherwise serialised as JSON. */
   body?: unknown;
   /** 'blob' returns a DownloadedFile instead of parsed JSON. */
   responseType?: 'json' | 'blob';
+  /** Not shown in the app-wide progress indicator (e.g. page-visit tracking). */
+  background?: boolean;
 }
 
 export interface DownloadedFile {
@@ -45,6 +48,8 @@ const NO_REFRESH_PATHS = new Set([
   '/auth/reset-password',
 ]);
 
+const ADMIN_LOGIN_PATH = '/admin/auth/login';
+
 function buildUrl(path: string): string {
   return `${env.apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`;
 }
@@ -61,7 +66,15 @@ async function parseBody(response: Response): Promise<unknown> {
   }
 }
 
-async function send(path: string, options: RequestOptions): Promise<unknown> {
+/** Every request counts towards the app-wide progress indicator while it is in flight. */
+function send(path: string, options: RequestOptions): Promise<unknown> {
+  return options.background
+    ? sendUntracked(path, options)
+    : trackRequest(() => sendUntracked(path, options));
+}
+
+async function sendUntracked(path: string, options: RequestOptions): Promise<unknown> {
+  // `background` stays in `init`: fetch ignores options it does not know.
   const { body, headers: initHeaders, responseType = 'json', ...init } = options;
   const method = (init.method ?? 'GET').toUpperCase();
   const headers = new Headers(initHeaders);
@@ -143,6 +156,13 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     if (error.status === 403 && error.code === 'CSRF_TOKEN_INVALID') {
       resetCsrfToken();
       return (await send(path, options)) as T;
+    }
+    // The admin panel has its own session (no refresh token): a 401 means sign in again.
+    if (path.startsWith('/admin/')) {
+      if (error.status === 401 && path !== ADMIN_LOGIN_PATH) {
+        emitAdminSessionExpired();
+      }
+      throw error;
     }
     if (error.status === 401 && !NO_REFRESH_PATHS.has(path)) {
       if (await refreshSession()) {

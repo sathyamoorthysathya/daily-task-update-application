@@ -11,109 +11,74 @@ interface TimeFieldProps {
   hint?: string;
 }
 
-const HOURS = Array.from({ length: 12 }, (_, i) => String(i + 1));
-const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+/** Minutes between the times offered in the list. */
+const STEP_MINUTES = 15;
 
-/** "14:05" → { hour: "2", minute: "05", period: "PM" }; "" → all empty. */
-function split(value: string): { hour: string; minute: string; period: string } {
-  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
-  if (!match) {
-    return { hour: '', minute: '', period: '' };
-  }
-  const hour24 = Number(match[1]);
-  return {
-    hour: String(hour24 % 12 === 0 ? 12 : hour24 % 12),
-    minute: match[2]!,
-    period: hour24 < 12 ? 'AM' : 'PM',
-  };
+/** Parts of the day, in the order shown: the list opens at working hours, night comes last. */
+const PARTS_OF_DAY = [
+  { label: 'Morning', from: 6, to: 12 },
+  { label: 'Afternoon', from: 12, to: 17 },
+  { label: 'Evening', from: 17, to: 24 },
+  { label: 'Night', from: 0, to: 6 },
+];
+
+const pad = (value: number) => String(value).padStart(2, '0');
+
+/** "14:05" → "2:05 PM" */
+function formatTime12h(value: string): string {
+  const hour = Number(value.slice(0, 2));
+  return `${hour % 12 === 0 ? 12 : hour % 12}:${value.slice(3, 5)} ${hour < 12 ? 'AM' : 'PM'}`;
 }
 
-/** { hour: "2", minute: "05", period: "PM" } → "14:05" */
-function join(hour: string, minute: string, period: string): string {
-  const hour24 = (Number(hour) % 12) + (period === 'PM' ? 12 : 0);
-  return `${String(hour24).padStart(2, '0')}:${minute}`;
-}
+/** Every STEP_MINUTES from 00:00 to 23:45, as "HH:MM". */
+const TIMES = Array.from({ length: (24 * 60) / STEP_MINUTES }, (_, index) => {
+  const minutes = index * STEP_MINUTES;
+  return `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
+});
+
+const isTime = (value: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 
 /**
- * Time of day on the 12-hour clock: hour, minute and AM/PM. Unlike the browser's time input,
- * it looks the same whatever the computer's regional settings are (never 24-hour "railway"
- * time). The value it reports is still "HH:MM" on the 24-hour clock.
+ * Time of day as one drop-down of 12-hour times ("9:30 AM") every 15 minutes, grouped into
+ * morning, afternoon, evening and night. It looks the same whatever the computer's regional
+ * settings are (never 24-hour "railway" time). The value it reports is still "HH:MM" on the
+ * 24-hour clock. A saved time that is not on the 15-minute grid (e.g. 9:07) is still offered.
  */
 export function TimeField({ label, name, value, onChange, error, hint }: TimeFieldProps) {
   const id = useId();
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
   const describedBy = [hint && hintId, error && errorId].filter(Boolean).join(' ') || undefined;
-  const current = split(value);
-
-  /** Choosing any part sets the time; the parts not chosen yet start at 9:00 AM. */
-  function change(part: 'hour' | 'minute' | 'period', next: string) {
-    if (part === 'hour' && next === '') {
-      onChange({ target: { value: '' } });
-      return;
-    }
-    const time = {
-      hour: current.hour || '9',
-      minute: current.minute || '00',
-      period: current.period || 'AM',
-      [part]: next,
-    };
-    onChange({ target: { value: join(time.hour, time.minute, time.period) } });
-  }
+  const times = isTime(value) && !TIMES.includes(value) ? [...TIMES, value].sort() : TIMES;
 
   return (
     <div className="field">
-      <span id={id} className="field-label">
-        {label}
-      </span>
-      <div
-        className="time-field"
-        role="group"
-        aria-labelledby={id}
+      <label htmlFor={id}>{label}</label>
+      <select
+        id={id}
+        name={name}
+        className="time-select"
+        value={isTime(value) ? value : ''}
+        aria-invalid={error ? true : undefined}
         aria-describedby={describedBy}
-        data-invalid={error ? true : undefined}
+        onChange={(event) => onChange({ target: { value: event.target.value } })}
       >
-        <select
-          name={name ? `${name}Hour` : undefined}
-          aria-label={`${label} hour`}
-          aria-invalid={error ? true : undefined}
-          value={current.hour}
-          onChange={(event) => change('hour', event.target.value)}
-        >
-          <option value="">--</option>
-          {HOURS.map((hour) => (
-            <option key={hour} value={hour}>
-              {hour}
-            </option>
-          ))}
-        </select>
-        <span aria-hidden="true">:</span>
-        <select
-          name={name ? `${name}Minute` : undefined}
-          aria-label={`${label} minute`}
-          aria-invalid={error ? true : undefined}
-          value={current.minute}
-          onChange={(event) => change('minute', event.target.value)}
-        >
-          {current.minute === '' && <option value="">--</option>}
-          {MINUTES.map((minute) => (
-            <option key={minute} value={minute}>
-              {minute}
-            </option>
-          ))}
-        </select>
-        <select
-          name={name ? `${name}Period` : undefined}
-          aria-label={`${label} AM or PM`}
-          aria-invalid={error ? true : undefined}
-          value={current.period}
-          onChange={(event) => change('period', event.target.value)}
-        >
-          {current.period === '' && <option value="">--</option>}
-          <option value="AM">AM</option>
-          <option value="PM">PM</option>
-        </select>
-      </div>
+        <option value="">Not set</option>
+        {PARTS_OF_DAY.map((part) => (
+          <optgroup key={part.label} label={part.label}>
+            {times
+              .filter((time) => {
+                const hour = Number(time.slice(0, 2));
+                return hour >= part.from && hour < part.to;
+              })
+              .map((time) => (
+                <option key={time} value={time}>
+                  {formatTime12h(time)}
+                </option>
+              ))}
+          </optgroup>
+        ))}
+      </select>
       {hint && !error && (
         <p id={hintId} className="field-hint">
           {hint}

@@ -12,6 +12,11 @@ interface Props {
   workbook: Workbook;
   /** Called after a change; with the new list when the API returned one, else reload. */
   onChanged: (list?: WorkbookList) => void;
+  /**
+   * Shows a change at once, before the server confirms it (optimistic update). If the server
+   * refuses, `onChanged()` reloads the real list.
+   */
+  onOptimistic: (change: (list: WorkbookList) => WorkbookList) => void;
 }
 
 type Mode = 'view' | 'rename' | 'delete';
@@ -28,7 +33,7 @@ const SYNC_BADGES: Record<
 const CONFLICT_MESSAGE =
   'This workbook was changed in another window. The list has been refreshed.';
 
-export function WorkbookCard({ workbook, onChanged }: Props) {
+export function WorkbookCard({ workbook, onChanged, onOptimistic }: Props) {
   const [mode, setMode] = useState<Mode>('view');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -64,9 +69,43 @@ export function WorkbookCard({ workbook, onChanged }: Props) {
       return;
     }
     void run(async () => {
-      await workbooksApi.rename(workbook, parsed.name);
+      // Shown renamed at once; the server confirms in the background.
+      onOptimistic((list) => ({
+        ...list,
+        workbooks: list.workbooks.map((other) =>
+          other.id === workbook.id ? { ...other, name: parsed.name } : other,
+        ),
+      }));
       setMode('view');
+      try {
+        await workbooksApi.rename(workbook, parsed.name);
+      } catch (error) {
+        // Refused (e.g. name taken): back to the real list, and to the form with the error.
+        onChanged();
+        setMode('rename');
+        throw error;
+      }
       onChanged();
+    });
+  }
+
+  /** Marked as the default at once; the server's list replaces it when it answers. */
+  function onSetDefault() {
+    void run(async () => {
+      onOptimistic((list) => ({
+        ...list,
+        defaultWorkbookId: workbook.id,
+        workbooks: list.workbooks.map((other) => ({
+          ...other,
+          isDefault: other.id === workbook.id,
+        })),
+      }));
+      try {
+        onChanged(await workbooksApi.setDefault(workbook.id));
+      } catch (error) {
+        onChanged();
+        throw error;
+      }
     });
   }
 
@@ -149,14 +188,7 @@ export function WorkbookCard({ workbook, onChanged }: Props) {
             Rename
           </button>
           {!workbook.isDefault && (
-            <button
-              type="button"
-              className="button"
-              disabled={busy}
-              onClick={() =>
-                void run(async () => onChanged(await workbooksApi.setDefault(workbook.id)))
-              }
-            >
+            <button type="button" className="button" disabled={busy} onClick={onSetDefault}>
               Set as default
             </button>
           )}

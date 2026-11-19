@@ -15,7 +15,7 @@ RUN npm ci --workspace frontend --include-workspace-root=false --ignore-scripts 
 COPY frontend frontend
 # Public build-time settings (never secrets: everything here ends up in the browser bundle).
 # (The Google client ID is fetched from the API at runtime.)
-ARG VITE_API_BASE_URL=/api
+ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build --workspace frontend
 

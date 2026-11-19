@@ -30,7 +30,7 @@ export function api(page: Page) {
   const request: APIRequestContext = page.request;
   const send = async (method: string, url: string, data?: unknown) => {
     if (!(await csrfToken(page.context()))) {
-      await request.get('/api/auth/csrf');
+      await request.get('/api/v1/auth/csrf');
     }
     return request.fetch(url, {
       method,
@@ -53,7 +53,7 @@ export async function signUp(
   name = 'Pat Playwright',
 ): Promise<TestUser> {
   const email = uniqueEmail(label);
-  const res = await api(page).post('/api/auth/register', { name, email, password: PASSWORD });
+  const res = await api(page).post('/api/v1/auth/register', { name, email, password: PASSWORD });
   expect(res.status(), await res.text()).toBe(201);
   const body = (await res.json()) as { user: { id: string } };
   return { email, name, id: body.user.id };
@@ -61,7 +61,7 @@ export async function signUp(
 
 /** Creates a workbook through the API and returns its ID. */
 export async function createWorkbook(page: Page, name: string, makeDefault = false) {
-  const res = await api(page).post('/api/workbooks', { name, makeDefault });
+  const res = await api(page).post('/api/v1/workbooks', { name, makeDefault });
   expect(res.status(), await res.text()).toBe(201);
   return ((await res.json()) as { id: string }).id;
 }
@@ -77,7 +77,7 @@ export interface NewTask {
 
 /** Creates a task through the API. */
 export async function createTask(page: Page, task: NewTask) {
-  const res = await api(page).post('/api/tasks', {
+  const res = await api(page).post('/api/v1/tasks', {
     entryDate: '2026-11-05',
     description: `${task.name} work`,
     status: 'IN_PROGRESS',
@@ -96,7 +96,7 @@ export async function waitForSync(page: Page, workbookId: string) {
     .poll(
       async () =>
         (
-          (await (await api(page).get(`/api/workbooks/${workbookId}/sync-status`)).json()) as {
+          (await (await api(page).get(`/api/v1/workbooks/${workbookId}/sync-status`)).json()) as {
             state: string;
           }
         ).state,

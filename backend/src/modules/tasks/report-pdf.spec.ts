@@ -34,6 +34,7 @@ function entry(day: number, overrides: Partial<ReportEntryDto> = {}): ReportEntr
     endTime: '13:15',
     minutesWorked: 225,
     remarks: day % 5 === 0 ? 'Waiting for the October invoices from accounts.' : null,
+    customValues: {},
     version: 1,
     createdAt: `${date}T09:00:00.000Z`,
     updatedAt: `${date}T13:15:00.000Z`,

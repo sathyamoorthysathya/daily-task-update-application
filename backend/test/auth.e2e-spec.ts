@@ -50,6 +50,60 @@ describe('Authentication (e2e)', () => {
     await app.close();
   });
 
+  describe('POST /api/v1/auth/login status codes', () => {
+    it('answers 200 / 401 / 422 / 429 / 500 for each scenario', async () => {
+      const c = await client();
+      const email = uniqueEmail('statuses');
+      await c.register(email).expect(201);
+
+      // Valid login.
+      const ok = await (await client()).login(email).expect(200);
+      expect(ok.body.user.email).toBe(email);
+
+      // Invalid credentials.
+      const wrong = await (await client()).login(email, 'Wrong-pass-123').expect(401);
+      expect(wrong.body.code).toBe('INVALID_CREDENTIALS');
+
+      // Invalid input: field errors.
+      const invalid = await (
+        await client()
+      )
+        .post('/api/v1/auth/login', { email: 'not-an-email' })
+        .expect(422);
+      expect(invalid.body).toMatchObject({ statusCode: 422, code: 'VALIDATION_FAILED' });
+      const fieldErrors = (invalid.body as { errors: { field: string }[] }).errors;
+      expect(fieldErrors.map((e) => e.field)).toEqual(
+        expect.arrayContaining(['email', 'password']),
+      );
+
+      // Server error: a generic message, no internals.
+      const failing = vi
+        .spyOn(PasswordService.prototype, 'verify')
+        .mockRejectedValueOnce(new Error('connection to database lost'));
+      const crash = await (await client()).login(email).expect(500);
+      expect(crash.body).toMatchObject({ statusCode: 500, message: 'Internal server error' });
+      expect(JSON.stringify(crash.body)).not.toMatch(/database lost/);
+      failing.mockRestore();
+
+      // Too many requests, with the standard Retry-After header (seconds).
+      const limited = await client();
+      const target = uniqueEmail('statuses-limit');
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await limited.login(target, 'Wrong-pass-123').expect(401);
+      }
+      const tooMany = await limited.login(target, 'Wrong-pass-123').expect(429);
+      expect(Number(tooMany.headers['retry-after'])).toBeGreaterThan(0);
+    });
+
+    it('serves every route under /api/v1 only; health checks also answer unversioned', async () => {
+      const c = await client();
+      await c.agent.get('/api/v1/auth/csrf').expect(200);
+      await c.agent.get('/api/auth/csrf').expect(404);
+      await c.agent.get('/api/v1/health/live').expect(200);
+      await c.agent.get('/api/health/live').expect(200);
+    });
+  });
+
   describe('registration', () => {
     it('creates the user, signs them in with secure cookies and never stores the plain password', async () => {
       const c = await client();
@@ -70,7 +124,7 @@ describe('Authentication (e2e)', () => {
       expect(access?.attributes).toMatch(/Path=\/api(;|$)/);
       expect(access?.attributes).toMatch(/SameSite=Lax/i);
       expect(refresh?.attributes).toMatch(/HttpOnly/i);
-      expect(refresh?.attributes).toMatch(/Path=\/api\/auth/);
+      expect(refresh?.attributes).toMatch(/Path=\/api\/v1\/auth/);
       expect(refresh?.attributes).toMatch(/SameSite=Strict/i);
 
       const stored = await prisma.user.findUniqueOrThrow({ where: { email } });
@@ -80,7 +134,7 @@ describe('Authentication (e2e)', () => {
       expect(token.tokenHash).toHaveLength(64);
       expect(token.tokenHash).not.toBe(refresh?.value);
 
-      await c.get('/api/auth/me').expect(200);
+      await c.get('/api/v1/auth/me').expect(200);
     });
 
     it('rejects a duplicate email, case-insensitively', async () => {
@@ -97,8 +151,8 @@ describe('Authentication (e2e)', () => {
       const res = await (
         await client()
       )
-        .post('/api/auth/register', { name: '', email: 'not-an-email', password: 'short' })
-        .expect(400);
+        .post('/api/v1/auth/register', { name: '', email: 'not-an-email', password: 'short' })
+        .expect(422);
 
       expect(res.body.code).toBe('VALIDATION_FAILED');
       const fields = (res.body.errors as { field: string }[]).map((e) => e.field);
@@ -110,7 +164,7 @@ describe('Authentication (e2e)', () => {
     it('rejects state-changing requests without a CSRF token', async () => {
       const c = await client();
       const res = await c.agent
-        .post('/api/auth/login')
+        .post('/api/v1/auth/login')
         .send({ email: uniqueEmail(), password: STRONG_PASSWORD })
         .expect(403);
 
@@ -121,7 +175,7 @@ describe('Authentication (e2e)', () => {
       const c = await client();
       const other = await client();
       await c.agent
-        .post('/api/auth/login')
+        .post('/api/v1/auth/login')
         .set('X-CSRF-Token', other.csrfToken)
         .send({ email: uniqueEmail(), password: STRONG_PASSWORD })
         .expect(403);
@@ -138,7 +192,7 @@ describe('Authentication (e2e)', () => {
 
       expect(res.body.user.email).toBe(email);
       expect(getSetCookie(res, 'access_token')).toBeDefined();
-      const me = await c.get('/api/auth/me').expect(200);
+      const me = await c.get('/api/v1/auth/me').expect(200);
       expect(me.body.email).toBe(email);
     });
 
@@ -176,7 +230,7 @@ describe('Authentication (e2e)', () => {
 
   describe('unauthorized access', () => {
     it('rejects requests without an access token', async () => {
-      const res = await (await client()).get('/api/auth/me').expect(401);
+      const res = await (await client()).get('/api/v1/auth/me').expect(401);
       expect(res.body.code).toBe('UNAUTHENTICATED');
     });
 
@@ -186,7 +240,7 @@ describe('Authentication (e2e)', () => {
       const access = getSetCookie(res, 'access_token')!.value;
       const tampered = `${access.slice(0, -4)}AAAA`;
 
-      const me = await c.rawGet('/api/auth/me', { access_token: tampered }).expect(401);
+      const me = await c.rawGet('/api/v1/auth/me', { access_token: tampered }).expect(401);
       expect(me.body.code).toBe('INVALID_TOKEN');
     });
 
@@ -200,11 +254,11 @@ describe('Authentication (e2e)', () => {
         .get(JwtService)
         .signAsync({ sub: user.id, sid }, { expiresIn: -60 });
 
-      const me = await c.rawGet('/api/auth/me', { access_token: expired }).expect(401);
+      const me = await c.rawGet('/api/v1/auth/me', { access_token: expired }).expect(401);
       expect(me.body.code).toBe('TOKEN_EXPIRED');
 
-      await c.post('/api/auth/refresh').expect(204);
-      await c.get('/api/auth/me').expect(200);
+      await c.post('/api/v1/auth/refresh').expect(204);
+      await c.get('/api/v1/auth/me').expect(200);
     });
   });
 
@@ -215,14 +269,14 @@ describe('Authentication (e2e)', () => {
       const aliceId = (await alice.register(uniqueEmail('alice'))).body.user.id as string;
       const bobId = (await bob.register(uniqueEmail('bob'))).body.user.id as string;
 
-      await alice.get(`/api/users/${aliceId}`).expect(200);
-      const updated = await alice.patch(`/api/users/${aliceId}`, { name: 'Alice' }).expect(200);
+      await alice.get(`/api/v1/users/${aliceId}`).expect(200);
+      const updated = await alice.patch(`/api/v1/users/${aliceId}`, { name: 'Alice' }).expect(200);
       expect(updated.body.name).toBe('Alice');
 
-      const read = await alice.get(`/api/users/${bobId}`).expect(403);
+      const read = await alice.get(`/api/v1/users/${bobId}`).expect(403);
       expect(read.body.code).toBe('FORBIDDEN');
-      await alice.patch(`/api/users/${bobId}`, { name: 'Hacked' }).expect(403);
-      const bobProfile = await bob.get(`/api/users/${bobId}`).expect(200);
+      await alice.patch(`/api/v1/users/${bobId}`, { name: 'Hacked' }).expect(403);
+      const bobProfile = await bob.get(`/api/v1/users/${bobId}`).expect(200);
       expect(bobProfile.body.name).toBe('Test User');
     });
   });
@@ -233,21 +287,21 @@ describe('Authentication (e2e)', () => {
       const res = await c.register(uniqueEmail('rotate')).expect(201);
       const firstRefresh = getSetCookie(res, 'refresh_token')!.value;
 
-      const rotated = await c.post('/api/auth/refresh').expect(204);
+      const rotated = await c.post('/api/v1/auth/refresh').expect(204);
       const secondRefresh = getSetCookie(rotated, 'refresh_token')!.value;
       expect(secondRefresh).not.toBe(firstRefresh);
-      await c.get('/api/auth/me').expect(200);
+      await c.get('/api/v1/auth/me').expect(200);
 
       // An attacker replays the stolen, already-used token.
       const replay = await c
-        .rawPost('/api/auth/refresh', { refresh_token: firstRefresh })
+        .rawPost('/api/v1/auth/refresh', { refresh_token: firstRefresh })
         .expect(401);
       expect(replay.body.code).toBe('REFRESH_TOKEN_REUSED');
 
       // The legitimate session is revoked too: access and refresh tokens stop working.
-      const me = await c.get('/api/auth/me').expect(401);
+      const me = await c.get('/api/v1/auth/me').expect(401);
       expect(me.body.code).toBe('SESSION_REVOKED');
-      await c.rawPost('/api/auth/refresh', { refresh_token: secondRefresh }).expect(401);
+      await c.rawPost('/api/v1/auth/refresh', { refresh_token: secondRefresh }).expect(401);
     });
 
     it('rejects an expired refresh token', async () => {
@@ -260,14 +314,14 @@ describe('Authentication (e2e)', () => {
         data: { expiresAt: new Date(Date.now() - 1000) },
       });
 
-      const res = await c.post('/api/auth/refresh').expect(401);
+      const res = await c.post('/api/v1/auth/refresh').expect(401);
 
       expect(res.body.code).toBe('REFRESH_TOKEN_EXPIRED');
       expect(getSetCookie(res, 'refresh_token')?.attributes).toMatch(/Expires=Thu, 01 Jan 1970/);
     });
 
     it('requires a refresh token', async () => {
-      const res = await (await client()).post('/api/auth/refresh').expect(401);
+      const res = await (await client()).post('/api/v1/auth/refresh').expect(401);
       expect(res.body.code).toBe('REFRESH_TOKEN_MISSING');
     });
   });
@@ -279,14 +333,14 @@ describe('Authentication (e2e)', () => {
       const access = getSetCookie(res, 'access_token')!.value;
       const refresh = getSetCookie(res, 'refresh_token')!.value;
 
-      const out = await c.post('/api/auth/logout').expect(204);
+      const out = await c.post('/api/v1/auth/logout').expect(204);
 
       expect(getSetCookie(out, 'access_token')?.value).toBe('');
-      await c.get('/api/auth/me').expect(401);
+      await c.get('/api/v1/auth/me').expect(401);
       // Captured tokens are useless after logout.
-      const reuse = await c.rawGet('/api/auth/me', { access_token: access }).expect(401);
+      const reuse = await c.rawGet('/api/v1/auth/me', { access_token: access }).expect(401);
       expect(reuse.body.code).toBe('SESSION_REVOKED');
-      await c.rawPost('/api/auth/refresh', { refresh_token: refresh }).expect(401);
+      await c.rawPost('/api/v1/auth/refresh', { refresh_token: refresh }).expect(401);
     });
 
     it('logout-all ends every session of the user', async () => {
@@ -296,24 +350,24 @@ describe('Authentication (e2e)', () => {
       await laptop.register(email).expect(201);
       await phone.login(email).expect(200);
 
-      await laptop.post('/api/auth/logout-all').expect(204);
+      await laptop.post('/api/v1/auth/logout-all').expect(204);
 
-      await laptop.get('/api/auth/me').expect(401);
-      await phone.get('/api/auth/me').expect(401);
-      await phone.post('/api/auth/refresh').expect(401);
+      await laptop.get('/api/v1/auth/me').expect(401);
+      await phone.get('/api/v1/auth/me').expect(401);
+      await phone.post('/api/v1/auth/refresh').expect(401);
     });
   });
 
   describe('Google sign-in', () => {
     async function googleLogin(c: AuthTestClient, claims: Parameters<FakeGoogleIssuer['sign']>[0]) {
-      const nonceRes = await c.get('/api/auth/google/nonce').expect(200);
+      const nonceRes = await c.get('/api/v1/auth/google/nonce').expect(200);
       const nonce = nonceRes.body.nonce as string;
       const credential = google.sign({ nonce, ...claims });
-      return { res: await c.post('/api/auth/google', { credential }), credential };
+      return { res: await c.post('/api/v1/auth/google', { credential }), credential };
     }
 
     it('advertises the Google provider', async () => {
-      const res = await (await client()).get('/api/auth/providers').expect(200);
+      const res = await (await client()).get('/api/v1/auth/providers').expect(200);
       expect(res.body).toEqual({ google: { enabled: true, clientId: TEST_GOOGLE_CLIENT_ID } });
     });
 
@@ -332,7 +386,7 @@ describe('Authentication (e2e)', () => {
         hasPassword: false,
         providers: ['google'],
       });
-      await c.get('/api/auth/me').expect(200);
+      await c.get('/api/v1/auth/me').expect(200);
 
       const again = await googleLogin(await client(), { sub, email });
       expect(again.res.status).toBe(200);
@@ -343,9 +397,9 @@ describe('Authentication (e2e)', () => {
 
     it('rejects a token whose nonce was not issued to this browser, and nonces are single-use', async () => {
       const c = await client();
-      await c.get('/api/auth/google/nonce').expect(200);
+      await c.get('/api/v1/auth/google/nonce').expect(200);
       const forged = google.sign({ nonce: 'attacker-nonce', email: uniqueEmail('g') });
-      const res = await c.post('/api/auth/google', { credential: forged }).expect(401);
+      const res = await c.post('/api/v1/auth/google', { credential: forged }).expect(401);
       expect(res.body.code).toBe('GOOGLE_TOKEN_INVALID');
 
       const { res: ok, credential } = await googleLogin(c, {
@@ -353,7 +407,7 @@ describe('Authentication (e2e)', () => {
         email: uniqueEmail('g'),
       });
       expect(ok.status).toBe(200);
-      await c.post('/api/auth/google', { credential }).expect(401);
+      await c.post('/api/v1/auth/google', { credential }).expect(401);
     });
 
     it('refuses Google accounts with an unverified email', async () => {
@@ -368,9 +422,9 @@ describe('Authentication (e2e)', () => {
 
     it('rejects tokens for another audience', async () => {
       const c = await client();
-      const nonce = (await c.get('/api/auth/google/nonce')).body.nonce as string;
+      const nonce = (await c.get('/api/v1/auth/google/nonce')).body.nonce as string;
       const credential = google.sign({ nonce, aud: 'another-app.apps.googleusercontent.com' });
-      await c.post('/api/auth/google', { credential }).expect(401);
+      await c.post('/api/v1/auth/google', { credential }).expect(401);
     });
 
     it('links Google to an existing verified account and keeps its password', async () => {
@@ -403,7 +457,7 @@ describe('Authentication (e2e)', () => {
       expect(res.status).toBe(200);
       expect(res.body.user).toMatchObject({ emailVerified: true, hasPassword: false });
       // The attacker's session and password no longer work.
-      await attacker.get('/api/auth/me').expect(401);
+      await attacker.get('/api/v1/auth/me').expect(401);
       await (await client()).login(email, 'Attack3r-pass').expect(401);
     });
   });
@@ -421,7 +475,7 @@ describe('Authentication (e2e)', () => {
       const res = await (
         await client()
       )
-        .post('/api/auth/forgot-password', { email: uniqueEmail('ghost') })
+        .post('/api/v1/auth/forgot-password', { email: uniqueEmail('ghost') })
         .expect(202);
 
       expect(res.body.message).toMatch(/If an account exists/);
@@ -433,7 +487,7 @@ describe('Authentication (e2e)', () => {
       const session = await client();
       await session.register(email).expect(201);
 
-      await (await client()).post('/api/auth/forgot-password', { email }).expect(202);
+      await (await client()).post('/api/v1/auth/forgot-password', { email }).expect(202);
       await vi.waitFor(() => expect(lastResetToken(email)).not.toBe(''));
       const token = lastResetToken(email);
       const stored = await prisma.passwordResetToken.findFirstOrThrow({
@@ -443,27 +497,29 @@ describe('Authentication (e2e)', () => {
 
       const c = await client();
       const weak = await c
-        .post('/api/auth/reset-password', { token, password: 'weak' })
-        .expect(400);
+        .post('/api/v1/auth/reset-password', { token, password: 'weak' })
+        .expect(422);
       expect(weak.body.code).toBe('VALIDATION_FAILED');
 
-      await c.post('/api/auth/reset-password', { token, password: 'Brand-new-pass-9' }).expect(204);
+      await c
+        .post('/api/v1/auth/reset-password', { token, password: 'Brand-new-pass-9' })
+        .expect(204);
 
-      await session.get('/api/auth/me').expect(401);
+      await session.get('/api/v1/auth/me').expect(401);
       await (await client()).login(email).expect(401);
       const login = await (await client()).login(email, 'Brand-new-pass-9').expect(200);
       expect(login.body.user.emailVerified).toBe(true);
 
       const reuse = await c
-        .post('/api/auth/reset-password', { token, password: 'Another-pass-10' })
-        .expect(400);
+        .post('/api/v1/auth/reset-password', { token, password: 'Another-pass-10' })
+        .expect(422);
       expect(reuse.body.code).toBe('RESET_TOKEN_INVALID');
     });
 
     it('rejects an expired reset link', async () => {
       const email = uniqueEmail('reset-expired');
       await (await client()).register(email).expect(201);
-      await (await client()).post('/api/auth/forgot-password', { email }).expect(202);
+      await (await client()).post('/api/v1/auth/forgot-password', { email }).expect(202);
       await vi.waitFor(() => expect(lastResetToken(email)).not.toBe(''));
       await prisma.passwordResetToken.updateMany({
         where: { user: { email } },
@@ -473,11 +529,11 @@ describe('Authentication (e2e)', () => {
       const res = await (
         await client()
       )
-        .post('/api/auth/reset-password', {
+        .post('/api/v1/auth/reset-password', {
           token: lastResetToken(email),
           password: 'Brand-new-pass-9',
         })
-        .expect(400);
+        .expect(422);
       expect(res.body.code).toBe('RESET_TOKEN_INVALID');
     });
   });

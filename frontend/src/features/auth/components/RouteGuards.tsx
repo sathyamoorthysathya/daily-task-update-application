@@ -1,13 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router';
+import { AppShellSkeleton, AuthSkeleton } from '../../../components/Skeletons';
 import { useAuth } from '../auth-context';
-
-function FullPageLoader() {
-  return (
-    <div className="page-loader" role="status" aria-live="polite">
-      Loading…
-    </div>
-  );
-}
 
 /** Renders child routes only for signed-in users; otherwise redirects to /login. */
 export function ProtectedRoute() {
@@ -15,7 +8,8 @@ export function ProtectedRoute() {
   const location = useLocation();
 
   if (status === 'loading') {
-    return <FullPageLoader />;
+    // Preview of the signed-in layout while the session is checked.
+    return <AppShellSkeleton />;
   }
   if (status === 'unauthenticated') {
     const from = `${location.pathname}${location.search}`;
@@ -29,7 +23,7 @@ export function GuestRoute() {
   const { status } = useAuth();
 
   if (status === 'loading') {
-    return <FullPageLoader />;
+    return <AuthSkeleton />;
   }
   if (status === 'authenticated') {
     return <Navigate to="/dashboard" replace />;

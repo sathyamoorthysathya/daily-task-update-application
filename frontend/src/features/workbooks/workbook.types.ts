@@ -7,6 +7,13 @@
  */
 export type WorkbookSyncState = 'synced' | 'pending' | 'retrying' | 'failed';
 
+/** A column the user added to the workbook's sheet when creating it. */
+export interface CustomColumn {
+  /** Key of the values stored on each entry ("c1", "c2", ...). */
+  id: string;
+  name: string;
+}
+
 export interface Workbook {
   id: string;
   name: string;
@@ -15,6 +22,8 @@ export interface Workbook {
   /** Number the next new task will most likely receive. */
   nextTaskNumber: number;
   sizeBytes: number;
+  /** Extra columns after the built-in ones, in sheet order (may be empty). */
+  customColumns: CustomColumn[];
   syncStatus: WorkbookSyncState;
   /** Error of the last failed sync attempt, while retrying or failed. */
   syncError: string | null;

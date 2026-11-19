@@ -25,6 +25,23 @@ Browser (React SPA) ──/api──▶ NestJS API ──▶ PostgreSQL (source 
 - Concurrent `401`s share one refresh, and a Web Lock serialises refreshes across tabs.
 - **Separate deployments:** to serve the web client and API separately, keep them on the same site (same registrable domain). Set `VITE_API_BASE_URL` to the absolute API URL and add the web origin to `CORS_ORIGINS`.
 
+### Versioning and status codes
+
+Every endpoint is versioned in its URL: `/api/v1/...` (e.g. `POST /api/v1/auth/login`). Health checks also answer at the unversioned `/api/health` and `/api/health/live` for Docker and uptime monitors. A future breaking change can add `v2` next to `v1`. The tables below list paths without the `/v1` segment.
+
+| Status                | When                                                                                           |
+| --------------------- | ---------------------------------------------------------------------------------------------- |
+| 200 / 201 / 202 / 204 | Success                                                                                        |
+| 400                   | The request itself is unreadable (malformed JSON)                                              |
+| 401                   | Not signed in, session expired, or invalid credentials                                         |
+| 403                   | Refused (e.g. missing or invalid CSRF token)                                                   |
+| 404                   | Not found, including other users' resources                                                    |
+| 409                   | Conflict (duplicate name, stale `version`, limits)                                             |
+| 422                   | Invalid input: validation errors with `errors: [{ field, message }]`, and other refused values |
+| 429                   | Too many requests; `Retry-After` gives the seconds to wait                                     |
+| 500                   | Unexpected server error (generic message only)                                                 |
+| 503                   | Database or storage unavailable                                                                |
+
 ### Error format
 
 Every API error has the same shape (`AllExceptionsFilter`):
@@ -35,7 +52,7 @@ Every API error has the same shape (`AllExceptionsFilter`):
   "error": "Not Found",
   "message": "Task not found.",
   "code": "TASK_NOT_FOUND",
-  "path": "/api/tasks/…",
+  "path": "/api/v1/tasks/…",
   "method": "GET",
   "timestamp": "2026-11-07T07:37:18.841Z",
   "requestId": "0bbe656d-59ff-4565-93a3-e33f23b75325"
@@ -43,8 +60,8 @@ Every API error has the same shape (`AllExceptionsFilter`):
 ```
 
 - `message` may be an array.
-- Validation failures add `errors: [{ field, message }]` with `code: VALIDATION_FAILED`.
-- Prisma errors map to statuses: `P2002`/`P2003` → 409, `P2025` → 404, connection failure → 503.
+- Validation failures (422) add `errors: [{ field, message }]` with `code: VALIDATION_FAILED`.
+- Prisma errors map to statuses: `P2000` (value too long) → 422, `P2002`/`P2003` → 409, `P2025` → 404, connection failure → 503.
 - Unexpected errors return a generic 500. The stack goes only to the log, and an alert is raised.
 - `requestId` is also sent in the `X-Request-Id` header.
 
@@ -71,7 +88,7 @@ Every API error has the same shape (`AllExceptionsFilter`):
   - Policy: 8–128 characters with a letter and a number.
   - Login runs a dummy hash for unknown emails, so timing doesn't reveal which accounts exist.
 - **Access token:** HS256 JWT `{ sub, sid }`, 15 minutes, in the `access_token` cookie (`HttpOnly`, `SameSite=Lax`, `Path=/api`, `Secure` in production).
-- **Refresh token:** 256-bit random value in the `refresh_token` cookie (`HttpOnly`, `SameSite=Strict`, `Path=/api/auth`). Only its SHA-256 hash is stored.
+- **Refresh token:** 256-bit random value in the `refresh_token` cookie (`HttpOnly`, `SameSite=Strict`, `Path=/api/v1/auth`). Only its SHA-256 hash is stored.
   - Every refresh rotates it. Reusing a rotated token revokes the whole session.
   - A session ends `SESSION_MAX_DAYS` after sign-in, however often it is refreshed.
 - **Revocation:** access tokens are accepted only while their session is active, so logout and password reset take effect immediately.
@@ -126,6 +143,8 @@ Every API error has the same shape (`AllExceptionsFilter`):
 - **The sheet "Daily Tasks":**
   - Columns: A Task Number · B Date · C Task Name · D Task Description · E Documentation Link / Reference · F Status.
   - Hidden internal ID columns: G Task ID · H Task Update ID.
+  - Work details: I Project / Module … P Remarks / Blockers.
+  - **Extra columns (optional):** up to 10 user-named columns chosen when the workbook is created (`customColumns`, stored as JSON `[{ id: "c1", name }]` on `workbooks`). They start at column Q so A–P never move. Each daily entry stores its values by column id (`task_updates.custom_values`); the New task form and the entry edit form show one input per column. Columns are fixed after creation.
   - Styled, frozen header with filters; a status drop-down and colours.
   - Only `http(s)` references become links. Text is never stored as a formula.
 - **Storage:**
@@ -248,16 +267,18 @@ Users only see a safe description of errors. The raw error is in `excel_sync_job
 
 ## Data model
 
-| Table                                     | Contents                                                                                  |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `users`, `auth_accounts`                  | Accounts and linked Google identities                                                     |
-| `refresh_tokens`, `password_reset_tokens` | Sessions (hashed tokens, rotation, session start) and reset links (hashed)                |
-| `user_profiles`, `user_avatars`           | Profile details; picture bytes (kept separate)                                            |
-| `workbooks`                               | Metadata, task-number counter, `data_version` / `synced_version`                          |
-| `tasks`, `task_updates`                   | Task master record (soft delete) and its dated entries                                    |
-| `task_history`                            | Append-only audit trail of task changes (an `UPDATE` trigger rejects changes)             |
-| `excel_sync_jobs`                         | Excel synchronisation outbox                                                              |
-| `audit_events`                            | Append-only security audit log (no foreign keys: it survives deleted users and workbooks) |
+| Table                                     | Contents                                                                                                                |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `users`, `auth_accounts`                  | Accounts and linked Google identities                                                                                   |
+| `refresh_tokens`, `password_reset_tokens` | Sessions (hashed tokens, rotation, session start) and reset links (hashed)                                              |
+| `user_profiles`, `user_avatars`           | Profile details; picture bytes (kept separate)                                                                          |
+| `workbooks`                               | Metadata, task-number counter, `data_version` / `synced_version`                                                        |
+| `tasks`, `task_updates`                   | Task master record (soft delete) and its dated entries                                                                  |
+| `task_history`                            | Append-only audit trail of task changes (an `UPDATE` trigger rejects changes)                                           |
+| `excel_sync_jobs`                         | Excel synchronisation outbox                                                                                            |
+| `audit_events`                            | Append-only security audit log (no foreign keys: it survives deleted users and workbooks); `admin_id` for admin actions |
+| `admin_users`, `admin_sessions`           | Administrators (unique username, Argon2id hash, encrypted TOTP secret, lockout) and their sessions (hashed tokens)      |
+| `page_views`                              | Pages opened in the web app: route, user (if signed in), random visitor ID, device / browser / OS                       |
 
 **Main indexes:**
 
@@ -265,7 +286,9 @@ Users only see a safe description of errors. The raw error is in `excel_sync_job
 - a trigram index on task names (search);
 - unique `task_updates (task_id, entry_date)`;
 - `excel_sync_jobs (status, next_attempt_at)`;
-- `audit_events (user_id, created_at)`.
+- `audit_events (user_id, created_at)` and `(admin_id, created_at)`;
+- `page_views (created_at)`, `(user_id, created_at)` and `(path, created_at)`;
+- `users (created_at)` and `users (last_seen_at)` (admin user list).
 
 Database sessions run in UTC (see [prisma.service.ts](../backend/src/database/prisma.service.ts)).
 
@@ -277,6 +300,45 @@ npm run prisma:deploy -w backend                       # apply committed migrati
 npm run prisma:generate -w backend                     # regenerate the Prisma client
 npm run prisma:studio -w backend                       # browse the data
 ```
+
+## Admin panel
+
+A separate area at `/admin` for administrators. Administrators are **not** app users: they have their own table, sign-in, session cookie and audit trail. An app account (or a stolen app session) can never reach the admin panel, and an admin session does not open the app's user API.
+
+**Accounts.** Each administrator has a **unique username** (3-32 characters, case-insensitive, stored lower-case) and a password hashed with Argon2id. The policy is stricter than for users: 12+ characters, upper- and lower-case letters, a number and a symbol, not containing the username. The first administrator comes from `ADMIN_USERNAME` / `ADMIN_PASSWORD` (created once at start-up) or the CLI ([`src/cli/admin.ts`](../backend/src/cli/admin.ts): `create`, `reset`, `list`). There is deliberately no "add administrator" button, so a hijacked admin session cannot create more administrators.
+
+**Sign-in** (`POST /admin/auth/login` with `{ username, password, code? }`):
+
+- an unknown username and a wrong password get the same `401 INVALID_CREDENTIALS` (a dummy hash keeps the timing similar);
+- with two-step verification on, a correct password without `code` answers `401 TWO_FACTOR_REQUIRED`, and the page asks for the 6-digit code;
+- 5 failures in a row (passwords or codes) lock the account for 15 minutes: `429 ACCOUNT_LOCKED` with `Retry-After`. The login rate limits (per IP + username, per username) apply too;
+- when `ADMIN_ALLOWED_IPS` is set, every admin request from another address gets `403 ADMIN_IP_NOT_ALLOWED` (audited as `admin.ip_blocked`).
+
+**Sessions.** A random 256-bit token in the `admin_session` cookie (HttpOnly, SameSite=Strict, `Secure` in production, path `/api/v1/admin`), stored only as a SHA-256 hash. A session ends after `ADMIN_SESSION_IDLE_MINUTES` without requests, `ADMIN_SESSION_MAX_HOURS` after sign-in, at sign-out, when the password is changed (other sessions), or with "Sign out other sessions". Unsafe requests need the CSRF token like the rest of the API. The settings page shows the previous sign-in (time, browser, address), so an administrator notices one that was not theirs.
+
+**Two-step verification** (TOTP, RFC 6238; works with Google Authenticator, Microsoft Authenticator, 1Password and similar apps): set up with the password, confirmed with a first code, turned off only with the password and a code. The secret is stored encrypted (AES-256-GCM, key derived from `JWT_ACCESS_SECRET` with HKDF). Each code is accepted once (replay protection), with one 30-second step of clock drift.
+
+**What administrators see** (all `GET`; per-day figures are counted in the administrator's time zone `tz`):
+
+| Endpoint                      | Contents                                                                                                                                                                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /admin/overview?days&tz` | User counts (active, disabled, verified, Google / password, new, active in 1 / 7 / 30 days), content totals, signed-in sessions, sign-ups / page views / entries per day, top pages, devices, newest and most active users, security alerts |
+| `GET /admin/users`            | Search (name, email), filter (active, disabled, unverified), sort (newest, oldest, name, recently active), pages                                                                                                                            |
+| `GET /admin/users/:id`        | Profile, sign-in methods, usage, tasks by status, workbooks, signed-in devices, top pages, recent visits, audit events                                                                                                                      |
+| `GET /admin/activity?days&tz` | Page views, visitors and signed-in users per day; per page; by device, browser, operating system and hour                                                                                                                                   |
+| `GET /admin/activity/visits`  | Visit log (filter by page, user, signed in / out)                                                                                                                                                                                           |
+| `GET /admin/security?days&tz` | Sign-ins succeeded / failed per day, failure reasons, addresses and accounts with the most failures, lockouts, stolen-token alerts                                                                                                          |
+| `GET /admin/security/events`  | Audit log: category (sign-in, account, admin, access), result, search by email, name, IP or event                                                                                                                                           |
+
+**Actions.** `POST /admin/users/:id/disable` (optional reason) ends every session of the user at once and blocks sign-in with `403 ACCOUNT_DISABLED`; `.../enable` reverses it; `.../sign-out` ends every session. Each action is written to the audit log with the administrator's ID.
+
+**Page visits.** The web app reports each page it opens (`POST /analytics/page-views`, public and rate-limited) with a random visitor ID kept in the browser. The server stores:
+
+- the route, with IDs replaced by `:id` and no query string (search words and reset tokens never reach the table);
+- the user, if the request carries a valid session;
+- the device type, browser and operating system family from the User-Agent.
+
+IP addresses are not stored, bots and admin pages are not counted, and rows are deleted after `PAGE_VIEW_RETENTION_DAYS`. `users.last_seen_at` is updated at most once a minute. `VITE_ANALYTICS=false` turns tracking off in the web build.
 
 ## Security and operations
 

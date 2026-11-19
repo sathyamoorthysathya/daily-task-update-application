@@ -42,7 +42,7 @@ test.describe('security in the browser', () => {
 
   test('API responses carry security headers and a request ID', async ({ page }) => {
     await signUp(page, 'headers');
-    const res = await page.request.get('/api/auth/me');
+    const res = await page.request.get('/api/v1/auth/me');
     expect(res.status()).toBe(200);
     const headers = res.headers();
     expect(headers['content-security-policy']).toContain("default-src 'none'");
@@ -54,7 +54,7 @@ test.describe('security in the browser', () => {
 
   test('state-changing requests without the CSRF token are refused', async ({ page }) => {
     await signUp(page, 'csrf');
-    const res = await page.request.post('/api/workbooks', { data: { name: 'Forged' } });
+    const res = await page.request.post('/api/v1/workbooks', { data: { name: 'Forged' } });
     expect(res.status()).toBe(403);
   });
 });

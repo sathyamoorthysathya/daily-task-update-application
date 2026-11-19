@@ -1,3 +1,5 @@
+import type { CustomColumn } from '../workbooks/workbook.types';
+
 export type TaskStatus = 'TO_DO' | 'IN_PROGRESS' | 'PENDING' | 'COMPLETED' | 'ON_HOLD';
 
 export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH';
@@ -41,6 +43,8 @@ export interface TaskUpdate {
   minutesWorked: number | null;
   /** Blockers or notes for the manager. */
   remarks: string | null;
+  /** Values of the workbook's extra columns, by column id (unset columns are left out). */
+  customValues: Record<string, string>;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -75,6 +79,8 @@ export interface TaskWorkInput {
   startTime: string | null;
   endTime: string | null;
   remarks: string | null;
+  /** Values of the workbook's extra columns, by column id. Omit to keep stored values. */
+  customValues?: Record<string, string>;
 }
 
 export interface TaskEntryInput extends TaskWorkInput {
@@ -83,6 +89,8 @@ export interface TaskEntryInput extends TaskWorkInput {
 
 export interface CreateTaskInput extends TaskEntryInput, TaskDetails {
   workbookId?: string;
+  /** The user's own task number; omit to number the task automatically. */
+  taskNumber?: number;
   name: string;
 }
 
@@ -156,7 +164,7 @@ export interface TaskHistoryEntry {
 }
 
 export interface TaskDetail extends Task {
-  workbook: WorkbookRef;
+  workbook: WorkbookRef & { customColumns: CustomColumn[] };
   /** Newest first. */
   updates: TaskUpdate[];
   /** Oldest first. */

@@ -16,7 +16,7 @@ const databaseDown = {
   error: 'Service Unavailable',
   message: 'Service Unavailable Exception',
   details: { status: 'error', error: { database: { status: 'down' } } },
-  path: '/api/health',
+  path: '/api/v1/health',
   method: 'GET',
   timestamp: '2026-01-01T00:00:00.000Z',
 };
@@ -40,7 +40,7 @@ describe('SystemStatusPanel', () => {
   });
 
   it('shows the API and database as operational when both checks pass', async () => {
-    respondWith({ '/api/health/live': { body: live }, '/api/health': { body: healthy } });
+    respondWith({ '/api/v1/health/live': { body: live }, '/api/v1/health': { body: healthy } });
 
     render(<SystemStatusPanel />);
 
@@ -51,8 +51,8 @@ describe('SystemStatusPanel', () => {
 
   it('shows the database as unavailable when the readiness check returns 503', async () => {
     respondWith({
-      '/api/health/live': { body: live },
-      '/api/health': { body: databaseDown, status: 503 },
+      '/api/v1/health/live': { body: live },
+      '/api/v1/health': { body: databaseDown, status: 503 },
     });
 
     render(<SystemStatusPanel />);
@@ -74,8 +74,8 @@ describe('SystemStatusPanel', () => {
 
   it('re-runs the checks when Refresh is clicked', async () => {
     const fetchSpy = respondWith({
-      '/api/health/live': { body: live },
-      '/api/health': { body: healthy },
+      '/api/v1/health/live': { body: live },
+      '/api/v1/health': { body: healthy },
     });
     render(<SystemStatusPanel />);
     await screen.findByText(/Last checked at/);

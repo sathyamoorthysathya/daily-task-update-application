@@ -6,6 +6,7 @@ import path from 'node:path';
 import type { Response } from 'supertest';
 import type { App } from 'supertest/types.js';
 import type { PrismaService } from '../src/database/prisma.service.js';
+import { readWorkbookRows } from '../src/modules/workbooks/workbook-reader.js';
 import { WorkbookStorageService } from '../src/modules/workbooks/workbook-storage.service.js';
 import { AuthTestClient, uniqueEmail } from './support/auth-test-client.js';
 import { createTestApp } from './support/test-app.js';
@@ -49,15 +50,15 @@ describe('Workbook management (e2e)', () => {
   }
 
   function create(client: AuthTestClient, name: string, extra: object = {}) {
-    return client.post('/api/workbooks', { name, ...extra });
+    return client.post('/api/v1/workbooks', { name, ...extra });
   }
 
   async function list(client: AuthTestClient): Promise<WorkbookList> {
-    return (await client.get('/api/workbooks').expect(200)).body as WorkbookList;
+    return (await client.get('/api/v1/workbooks').expect(200)).body as WorkbookList;
   }
 
   function download(client: AuthTestClient, id: string) {
-    return client.agent.get(`/api/workbooks/${id}/download`).buffer(true).parse(binary);
+    return client.agent.get(`/api/v1/workbooks/${id}/download`).buffer(true).parse(binary);
   }
 
   beforeAll(async () => {
@@ -116,10 +117,10 @@ describe('Workbook management (e2e)', () => {
       const dup = await create(client, 'REPORTS').expect(409);
       expect(dup.body.code).toBe('WORKBOOK_NAME_TAKEN');
 
-      const invalid = await create(client, '../../etc/passwd').expect(400);
+      const invalid = await create(client, '../../etc/passwd').expect(422);
       expect(invalid.body.code).toBe('VALIDATION_FAILED');
-      await create(client, '').expect(400);
-      await create(client, 'ok', { storageKey: '../evil' }).expect(400);
+      await create(client, '').expect(422);
+      await create(client, 'ok', { storageKey: '../evil' }).expect(422);
     });
 
     it('enforces the per-user workbook limit', async () => {
@@ -174,6 +175,73 @@ describe('Workbook management (e2e)', () => {
       expect(sheet.autoFilter).toBe('A1:P1');
       expect(sheet.views[0]).toMatchObject({ state: 'frozen', ySplit: 1 });
       expect(sheet.getRow(1).getCell(1).font).toMatchObject({ bold: true });
+    });
+
+    it('writes the user’s extra columns and their values to the Excel sheet', async () => {
+      const { client } = await signedIn('extra');
+      const invalid = await create(client, 'Bad', { customColumns: ['Client', 'client'] }).expect(
+        422,
+      );
+      expect(invalid.body.errors).toEqual([
+        { field: 'customColumns.1', message: '“client” is listed twice' },
+      ]);
+
+      const created = await create(client, 'With extras', {
+        customColumns: [' Client ', 'Ticket ID'],
+      }).expect(201);
+      const workbook = created.body as Workbook & { customColumns: unknown };
+      expect(workbook.customColumns).toEqual([
+        { id: 'c1', name: 'Client' },
+        { id: 'c2', name: 'Ticket ID' },
+      ]);
+
+      const task = await client
+        .post('/api/v1/tasks', {
+          workbookId: workbook.id,
+          name: 'Prepare GST report',
+          entryDate: '2026-11-05',
+          description: 'Collected invoices',
+          status: 'IN_PROGRESS',
+          customValues: { c1: ' Acme Ltd ', c2: '', c9: 'not a column' },
+        })
+        .expect(201);
+      const { task: saved, update } = task.body as {
+        task: { id: string };
+        update: { id: string; version: number; customValues: unknown };
+      };
+      expect(update.customValues).toEqual({ c1: 'Acme Ltd' });
+      await client
+        .post(`/api/v1/tasks/${saved.id}/updates`, {
+          entryDate: '2026-11-06',
+          description: 'Filed the return',
+          status: 'COMPLETED',
+          customValues: { c2: 'JIRA-7' },
+        })
+        .expect(201);
+      // Editing without customValues keeps the stored ones.
+      await client
+        .patch(`/api/v1/tasks/${saved.id}/updates/${update.id}`, {
+          description: 'Collected all invoices',
+          reference: null,
+          status: 'IN_PROGRESS',
+          version: update.version,
+        })
+        .expect(200);
+
+      const detail = (await client.get(`/api/v1/tasks/${saved.id}`).expect(200)).body as {
+        workbook: { customColumns: unknown };
+      };
+      expect(detail.workbook.customColumns).toEqual(workbook.customColumns);
+
+      const res = await download(client, workbook.id).expect(200);
+      const rows = await readWorkbookRows(res.body as Buffer);
+      expect(rows.map((row) => [row.description, row.extra])).toEqual([
+        ['Collected all invoices', { Client: 'Acme Ltd', 'Ticket ID': '' }],
+        ['Filed the return', { Client: '', 'Ticket ID': 'JIRA-7' }],
+      ]);
+      const excel = new ExcelJS.Workbook();
+      await excel.xlsx.load(res.body as ArrayBuffer);
+      expect(excel.getWorksheet('Daily Tasks')!.autoFilter).toBe('A1:R3');
     });
 
     it('never serves a file modified or removed outside the application; it is rebuilt from the database', async () => {
@@ -232,12 +300,12 @@ describe('Workbook management (e2e)', () => {
       await create(client, 'Taken').expect(201);
 
       const renamed = await client
-        .patch(`/api/workbooks/${workbook.id}`, { name: 'Final', version: 1 })
+        .patch(`/api/v1/workbooks/${workbook.id}`, { name: 'Final', version: 1 })
         .expect(200);
       expect(renamed.body).toMatchObject({ name: 'Final', version: 2 });
 
       const stale = await client
-        .patch(`/api/workbooks/${workbook.id}`, { name: 'Other', version: 1 })
+        .patch(`/api/v1/workbooks/${workbook.id}`, { name: 'Other', version: 1 })
         .expect(409);
       expect(stale.body).toMatchObject({
         code: 'WORKBOOK_VERSION_CONFLICT',
@@ -245,7 +313,7 @@ describe('Workbook management (e2e)', () => {
       });
 
       const taken = await client
-        .patch(`/api/workbooks/${workbook.id}`, { name: 'taken', version: 2 })
+        .patch(`/api/v1/workbooks/${workbook.id}`, { name: 'taken', version: 2 })
         .expect(409);
       expect(taken.body.code).toBe('WORKBOOK_NAME_TAKEN');
 
@@ -259,7 +327,7 @@ describe('Workbook management (e2e)', () => {
       await create(client, 'A').expect(201);
       const b = (await create(client, 'B').expect(201)).body as Workbook;
 
-      const result = (await client.post(`/api/workbooks/${b.id}/default`).expect(200))
+      const result = (await client.post(`/api/v1/workbooks/${b.id}/default`).expect(200))
         .body as WorkbookList;
 
       expect(result.defaultWorkbookId).toBe(b.id);
@@ -271,10 +339,10 @@ describe('Workbook management (e2e)', () => {
       const a = (await create(client, 'A').expect(201)).body as Workbook;
       const b = (await create(client, 'B').expect(201)).body as Workbook;
       const c = (await create(client, 'C').expect(201)).body as Workbook;
-      await client.post(`/api/workbooks/${c.id}/default`).expect(200);
+      await client.post(`/api/v1/workbooks/${c.id}/default`).expect(200);
 
       await client.agent
-        .delete(`/api/workbooks/${c.id}?version=1`)
+        .delete(`/api/v1/workbooks/${c.id}?version=1`)
         .set('X-CSRF-Token', client.csrfToken)
         .expect(204);
 
@@ -284,21 +352,21 @@ describe('Workbook management (e2e)', () => {
       await expect(stat(path.join(storageRoot, userId, `${c.id}.xlsx`))).rejects.toMatchObject({
         code: 'ENOENT',
       });
-      await client.get(`/api/workbooks/${c.id}`).expect(404);
+      await client.get(`/api/v1/workbooks/${c.id}`).expect(404);
     });
 
     it('refuses to delete a workbook that changed since it was shown', async () => {
       const { client } = await signedIn('delete-stale');
       const workbook = (await create(client, 'Mine').expect(201)).body as Workbook;
       await client
-        .patch(`/api/workbooks/${workbook.id}`, { name: 'Renamed', version: 1 })
+        .patch(`/api/v1/workbooks/${workbook.id}`, { name: 'Renamed', version: 1 })
         .expect(200);
 
       await client.agent
-        .delete(`/api/workbooks/${workbook.id}?version=1`)
+        .delete(`/api/v1/workbooks/${workbook.id}?version=1`)
         .set('X-CSRF-Token', client.csrfToken)
         .expect(409);
-      await client.get(`/api/workbooks/${workbook.id}`).expect(200);
+      await client.get(`/api/v1/workbooks/${workbook.id}`).expect(200);
     });
 
     it('leaves no default after the last workbook is deleted', async () => {
@@ -306,7 +374,7 @@ describe('Workbook management (e2e)', () => {
       const only = (await create(client, 'Only').expect(201)).body as Workbook;
 
       await client.agent
-        .delete(`/api/workbooks/${only.id}`)
+        .delete(`/api/v1/workbooks/${only.id}`)
         .set('X-CSRF-Token', client.csrfToken)
         .expect(204);
 
@@ -350,12 +418,12 @@ describe('Workbook management (e2e)', () => {
       const workbook = (await create(client, 'Start').expect(201)).body as Workbook;
 
       const [a, b] = await Promise.all([
-        client.patch(`/api/workbooks/${workbook.id}`, { name: 'From tab A', version: 1 }),
-        client.patch(`/api/workbooks/${workbook.id}`, { name: 'From tab B', version: 1 }),
+        client.patch(`/api/v1/workbooks/${workbook.id}`, { name: 'From tab A', version: 1 }),
+        client.patch(`/api/v1/workbooks/${workbook.id}`, { name: 'From tab B', version: 1 }),
       ]);
 
       expect([a.status, b.status].sort()).toEqual([200, 409]);
-      expect((await client.get(`/api/workbooks/${workbook.id}`)).body.version).toBe(2);
+      expect((await client.get(`/api/v1/workbooks/${workbook.id}`)).body.version).toBe(2);
     });
   });
 
@@ -371,12 +439,12 @@ describe('Workbook management (e2e)', () => {
 
       // Every operation on Alice's workbook looks like "not found" to Bob.
       const id = aliceBook.id;
-      await bob.client.get(`/api/workbooks/${id}`).expect(404);
+      await bob.client.get(`/api/v1/workbooks/${id}`).expect(404);
       await download(bob.client, id).expect(404);
-      await bob.client.patch(`/api/workbooks/${id}`, { name: 'Hacked', version: 1 }).expect(404);
-      await bob.client.post(`/api/workbooks/${id}/default`).expect(404);
+      await bob.client.patch(`/api/v1/workbooks/${id}`, { name: 'Hacked', version: 1 }).expect(404);
+      await bob.client.post(`/api/v1/workbooks/${id}/default`).expect(404);
       await bob.client.agent
-        .delete(`/api/workbooks/${id}`)
+        .delete(`/api/v1/workbooks/${id}`)
         .set('X-CSRF-Token', bob.client.csrfToken)
         .expect(404);
 
@@ -404,12 +472,12 @@ describe('Workbook management (e2e)', () => {
 
     it('requires authentication and CSRF protection', async () => {
       const anonymous = await AuthTestClient.create(app);
-      await anonymous.get('/api/workbooks').expect(401);
-      await anonymous.post('/api/workbooks', { name: 'X' }).expect(401);
+      await anonymous.get('/api/v1/workbooks').expect(401);
+      await anonymous.post('/api/v1/workbooks', { name: 'X' }).expect(401);
 
       const { client } = await signedIn('csrf');
-      await client.agent.post('/api/workbooks').send({ name: 'No CSRF' }).expect(403);
-      await client.get('/api/workbooks/not-a-uuid').expect(400);
+      await client.agent.post('/api/v1/workbooks').send({ name: 'No CSRF' }).expect(403);
+      await client.get('/api/v1/workbooks/not-a-uuid').expect(422);
     });
   });
 });

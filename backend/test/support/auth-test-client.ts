@@ -44,7 +44,7 @@ export class AuthTestClient {
 
   static async create(app: INestApplication<App>): Promise<AuthTestClient> {
     const client = new AuthTestClient(app);
-    const res = await client.agent.get('/api/auth/csrf').expect(200);
+    const res = await client.agent.get('/api/v1/auth/csrf').expect(200);
     client.csrfToken = (res.body as { csrfToken: string }).csrfToken;
     return client;
   }
@@ -62,11 +62,11 @@ export class AuthTestClient {
   }
 
   register(email: string, password = STRONG_PASSWORD, name = 'Test User') {
-    return this.post('/api/auth/register', { name, email, password });
+    return this.post('/api/v1/auth/register', { name, email, password });
   }
 
   login(email: string, password = STRONG_PASSWORD) {
-    return this.post('/api/auth/login', { email, password });
+    return this.post('/api/v1/auth/login', { email, password });
   }
 
   /** Sends a request with exactly the given cookies (plus a valid CSRF pair), bypassing the jar. */

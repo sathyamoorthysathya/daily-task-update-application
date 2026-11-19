@@ -5,8 +5,12 @@ const path = (id: string) => `/workbooks/${encodeURIComponent(id)}`;
 
 export const workbooksApi = {
   list: () => apiClient.get<WorkbookList>('/workbooks'),
-  create: (name: string, makeDefault?: boolean) =>
-    apiClient.post<Workbook>('/workbooks', makeDefault ? { name, makeDefault } : { name }),
+  create: (name: string, makeDefault?: boolean, customColumns: string[] = []) =>
+    apiClient.post<Workbook>('/workbooks', {
+      name,
+      ...(makeDefault ? { makeDefault } : {}),
+      ...(customColumns.length > 0 ? { customColumns } : {}),
+    }),
   rename: (workbook: Workbook, name: string) =>
     apiClient.patch<Workbook>(path(workbook.id), { name, version: workbook.version }),
   setDefault: (id: string) => apiClient.post<WorkbookList>(`${path(id)}/default`),

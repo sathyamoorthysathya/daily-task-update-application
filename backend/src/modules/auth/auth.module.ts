@@ -45,6 +45,6 @@ import { TokenService } from './tokens/token.service.js';
     // Google's official client; caches Google's public signing certificates.
     { provide: GOOGLE_OAUTH_CLIENT, useFactory: () => new OAuth2Client() },
   ],
-  exports: [TokenService, CsrfService],
+  exports: [TokenService, CsrfService, PasswordService],
 })
 export class AuthModule {}

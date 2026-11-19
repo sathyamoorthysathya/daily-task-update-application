@@ -20,15 +20,28 @@ export type AuditEventName =
   | 'workbook.created'
   | 'workbook.renamed'
   | 'workbook.deleted'
-  | 'workbook.resync_requested';
+  | 'workbook.resync_requested'
+  | 'admin.created'
+  | 'admin.login'
+  | 'admin.logout'
+  | 'admin.locked'
+  | 'admin.ip_blocked'
+  | 'admin.password_changed'
+  | 'admin.two_factor_enabled'
+  | 'admin.two_factor_disabled'
+  | 'admin.user_disabled'
+  | 'admin.user_enabled'
+  | 'admin.user_signed_out';
 
 export interface AuditRecord {
   event: AuditEventName;
   outcome?: AuditOutcome;
   userId?: string | null;
+  /** Administrator who acted (admin.* events). */
+  adminId?: string | null;
   /** Only for events without a known user (e.g. a failed login); never logged. */
   email?: string | null;
-  resourceType?: 'user' | 'session' | 'workbook' | 'task';
+  resourceType?: 'user' | 'session' | 'workbook' | 'task' | 'admin';
   resourceId?: string | null;
   /** Reasons, counts and names; never passwords, tokens or other secrets. */
   details?: Prisma.InputJsonObject;
@@ -52,6 +65,7 @@ export class AuditService {
       event: record.event,
       outcome,
       userId: record.userId ?? null,
+      adminId: record.adminId ?? null,
       resourceType: record.resourceType ?? null,
       resourceId: record.resourceId ?? null,
       ip: request?.ip?.slice(0, 64) ?? null,

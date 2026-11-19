@@ -20,9 +20,13 @@ const isMarked = (key: string, context: ExecutionContext) =>
     context.getClass(),
   ]) === true;
 
+/** The account being signed in to: an email (users) or a username (administrators). */
 const emailOf = (request: Request) => {
-  const body = request.body as { email?: unknown } | undefined;
-  return typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const body = request.body as { email?: unknown; username?: unknown } | undefined;
+  if (typeof body?.email === 'string') {
+    return body.email.trim().toLowerCase();
+  }
+  return typeof body?.username === 'string' ? `admin:${body.username.trim().toLowerCase()}` : '';
 };
 
 /**
@@ -30,7 +34,8 @@ const emailOf = (request: Request) => {
  * when running several). Client IPs are correct only when TRUST_PROXY matches the proxies.
  * - default:       API_RATE_LIMIT requests/minute per IP on every route.
  * - auth:          AUTH_RATE_LIMIT requests/minute per IP on @AuthRateLimit() routes.
- * - login:         LOGIN_RATE_LIMIT attempts/15 minutes per IP + email (@LoginRateLimit()).
+ * - login:         LOGIN_RATE_LIMIT attempts/15 minutes per IP + email or admin username
+ *                  (@LoginRateLimit()).
  * - login-account: LOGIN_ACCOUNT_RATE_LIMIT attempts/15 minutes per email from any IP, so that
  *                  rotating IP addresses does not help guessing one account's password.
  * - write:         WRITE_RATE_LIMIT task changes/minute per session (@WriteRateLimit()).

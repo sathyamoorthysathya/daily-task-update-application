@@ -1,5 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
+import { preloadPages } from '../../app/page-loaders';
 import { useAuth } from '../../features/auth/auth-context';
 import { Avatar } from '../Avatar';
 import {
@@ -48,6 +49,9 @@ export function AppLayout() {
   const { pathname } = useLocation();
   const [signingOut, setSigningOut] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+
+  // The current page is shown; download the others in the background for instant navigation.
+  useEffect(preloadPages, []);
   const [search, setSearch] = useState('');
 
   // Escape closes the drawer on small screens.

@@ -69,7 +69,7 @@ describe('Production security (e2e)', () => {
     });
 
     it('tags every response with a request ID, also returned in error bodies', async () => {
-      const generated = await request(app.getHttpServer()).get('/api/nope').expect(404);
+      const generated = await request(app.getHttpServer()).get('/api/v1/nope').expect(404);
       expect(generated.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
       expect(generated.body.requestId).toBe(generated.headers['x-request-id']);
 
@@ -86,14 +86,14 @@ describe('Production security (e2e)', () => {
 
     it('allows credentialed CORS only for configured origins', async () => {
       const allowed = await request(app.getHttpServer())
-        .options('/api/auth/me')
+        .options('/api/v1/auth/me')
         .set('Origin', 'http://localhost:5173')
         .set('Access-Control-Request-Method', 'GET');
       expect(allowed.headers['access-control-allow-origin']).toBe('http://localhost:5173');
       expect(allowed.headers['access-control-allow-credentials']).toBe('true');
 
       const denied = await request(app.getHttpServer())
-        .options('/api/auth/me')
+        .options('/api/v1/auth/me')
         .set('Origin', 'https://evil.example')
         .set('Access-Control-Request-Method', 'GET');
       expect(denied.headers['access-control-allow-origin']).toBeUndefined();
@@ -101,7 +101,7 @@ describe('Production security (e2e)', () => {
 
     it('rejects oversized JSON bodies', async () => {
       const client = await AuthTestClient.create(app);
-      const res = await client.post('/api/auth/login', {
+      const res = await client.post('/api/v1/auth/login', {
         email: 'big@e2e.test',
         password: 'x'.repeat(200_000),
       });
@@ -110,22 +110,22 @@ describe('Production security (e2e)', () => {
 
     it('rejects path traversal and injection attempts at the validation layer', async () => {
       const { client } = await signedIn('inject');
-      await client.get('/api/workbooks/..%2F..%2Fetc%2Fpasswd').expect(400);
-      await client.get('/api/tasks/1%20OR%201=1').expect(400);
-      const search = await client.get(`/api/tasks?search=${encodeURIComponent("' OR '1'='1")}`);
+      await client.get('/api/v1/workbooks/..%2F..%2Fetc%2Fpasswd').expect(422);
+      await client.get('/api/v1/tasks/1%20OR%201=1').expect(422);
+      const search = await client.get(`/api/v1/tasks?search=${encodeURIComponent("' OR '1'='1")}`);
       expect(search.status).toBe(200);
       expect(search.body.total).toBe(0);
     });
 
     it('rejects references with control characters (javascript: obfuscation)', async () => {
       const { client } = await signedIn('reference');
-      await client.post('/api/workbooks', { name: 'Main' }).expect(201);
+      await client.post('/api/v1/workbooks', { name: 'Main' }).expect(201);
       for (const reference of [
         'java\tscript:alert(1)',
         '\u0001javascript:alert(1)',
         'javascript:x',
       ]) {
-        const res = await client.post('/api/tasks', { ...TASK, reference }).expect(400);
+        const res = await client.post('/api/v1/tasks', { ...TASK, reference }).expect(422);
         expect(res.body.errors[0].field).toBe('reference');
       }
     });
@@ -133,7 +133,7 @@ describe('Production security (e2e)', () => {
     it('accepts only a single file part on avatar upload', async () => {
       const { client } = await signedIn('multipart');
       const res = await client.agent
-        .put('/api/profile/avatar')
+        .put('/api/v1/profile/avatar')
         .set('X-CSRF-Token', client.csrfToken)
         .field('extra', 'x'.repeat(1000))
         .attach('avatar', Buffer.from('not an image'), 'a.png');
@@ -151,14 +151,14 @@ describe('Production security (e2e)', () => {
 
       for (let i = 0; i < 5; i += 1) {
         await attacker.agent
-          .post('/api/auth/login')
+          .post('/api/v1/auth/login')
           .set('X-CSRF-Token', attacker.csrfToken)
           .set('X-Forwarded-For', '203.0.113.7')
           .send({ email, password: 'Wrong-pass-1' })
           .expect(401);
       }
       await attacker.agent
-        .post('/api/auth/login')
+        .post('/api/v1/auth/login')
         .set('X-CSRF-Token', attacker.csrfToken)
         .set('X-Forwarded-For', '203.0.113.7')
         .send({ email, password: 'Wrong-pass-1' })
@@ -166,7 +166,7 @@ describe('Production security (e2e)', () => {
 
       // The real owner, from another address, still signs in.
       await victim.agent
-        .post('/api/auth/login')
+        .post('/api/v1/auth/login')
         .set('X-CSRF-Token', victim.csrfToken)
         .set('X-Forwarded-For', '198.51.100.20')
         .send({ email, password: STRONG_PASSWORD })
@@ -185,7 +185,7 @@ describe('Production security (e2e)', () => {
       const statuses: number[] = [];
       for (let i = 0; i < 11; i += 1) {
         const res = await attacker.agent
-          .post('/api/auth/login')
+          .post('/api/v1/auth/login')
           .set('X-CSRF-Token', attacker.csrfToken)
           .set('X-Forwarded-For', `192.0.2.${i + 1}`)
           .send({ email, password: 'Wrong-pass-1' });
@@ -202,12 +202,12 @@ describe('Production security (e2e)', () => {
       const statuses: number[] = [];
       // Invalid bodies: the throttle runs before validation, so nothing is created.
       for (let i = 0; i < 61; i += 1) {
-        statuses.push((await client.post('/api/tasks', {})).status);
+        statuses.push((await client.post('/api/v1/tasks', {})).status);
       }
-      expect(statuses.slice(0, 60).every((s) => s === 400)).toBe(true);
+      expect(statuses.slice(0, 60).every((s) => s === 422)).toBe(true);
       expect(statuses[60]).toBe(429);
       // Other users are not affected.
-      expect((await other.client.post('/api/tasks', {})).status).toBe(400);
+      expect((await other.client.post('/api/v1/tasks', {})).status).toBe(422);
     });
   });
 
@@ -219,7 +219,7 @@ describe('Production security (e2e)', () => {
         data: { sessionStartedAt: new Date(Date.now() - 31 * 86_400_000) },
       });
 
-      const res = await client.post('/api/auth/refresh').expect(401);
+      const res = await client.post('/api/v1/auth/refresh').expect(401);
 
       expect(res.body.code).toBe('REFRESH_TOKEN_EXPIRED');
       expect(await prisma.refreshToken.count({ where: { userId, revokedAt: null } })).toBe(0);
@@ -234,7 +234,7 @@ describe('Production security (e2e)', () => {
         data: { sessionStartedAt: started },
       });
 
-      await client.post('/api/auth/refresh').expect(204);
+      await client.post('/api/v1/auth/refresh').expect(204);
 
       const current = await prisma.refreshToken.findFirstOrThrow({
         where: { userId, revokedAt: null },
@@ -249,7 +249,7 @@ describe('Production security (e2e)', () => {
       const email = uniqueEmail('audited');
       const client = await AuthTestClient.create(app);
       const registered = await client.agent
-        .post('/api/auth/register')
+        .post('/api/v1/auth/register')
         .set('X-CSRF-Token', client.csrfToken)
         .set('X-Forwarded-For', '198.51.100.7')
         .set('User-Agent', 'AuditTest/1.0')
@@ -260,18 +260,18 @@ describe('Production security (e2e)', () => {
       await client.login(email, 'Wrong-pass-1').expect(401);
       await client.login(email).expect(200);
       await client
-        .post('/api/auth/change-password', {
+        .post('/api/v1/auth/change-password', {
           currentPassword: STRONG_PASSWORD,
           newPassword: 'An0ther-strong-pass',
         })
         .expect(204);
-      const wb = await client.post('/api/workbooks', { name: 'Audited' }).expect(201);
-      await client.post('/api/tasks', TASK).expect(201);
+      const wb = await client.post('/api/v1/workbooks', { name: 'Audited' }).expect(201);
+      await client.post('/api/v1/tasks', TASK).expect(201);
       await client.agent
-        .delete(`/api/workbooks/${wb.body.id as string}`)
+        .delete(`/api/v1/workbooks/${wb.body.id as string}`)
         .set('X-CSRF-Token', client.csrfToken)
         .expect(204);
-      await client.post('/api/auth/logout-all').expect(204);
+      await client.post('/api/v1/auth/logout-all').expect(204);
 
       const events = await audit({ userId });
       expect(events.map((e) => [e.event, e.outcome])).toEqual([
@@ -312,7 +312,7 @@ describe('Production security (e2e)', () => {
       ]);
 
       const { client: user, userId } = await signedIn('csrf');
-      await user.agent.post('/api/workbooks').send({ name: 'No token' }).expect(403);
+      await user.agent.post('/api/v1/workbooks').send({ name: 'No token' }).expect(403);
       const denied = await eventually(() =>
         prisma.auditEvent.findFirst({ where: { event: 'access.denied', userId: null } }),
       );
@@ -341,17 +341,17 @@ describe('Production security (e2e)', () => {
       service.maxEntriesPerWorkbook = 2;
       try {
         const { client } = await signedIn('cap-entries');
-        await client.post('/api/workbooks', { name: 'Small' }).expect(201);
-        const first = await client.post('/api/tasks', { ...TASK, name: 'One' }).expect(201);
+        await client.post('/api/v1/workbooks', { name: 'Small' }).expect(201);
+        const first = await client.post('/api/v1/tasks', { ...TASK, name: 'One' }).expect(201);
         await client
-          .post(`/api/tasks/${first.body.task.id as string}/updates`, {
+          .post(`/api/v1/tasks/${first.body.task.id as string}/updates`, {
             entryDate: '2026-11-09',
             description: 'Two',
             status: 'TO_DO',
           })
           .expect(201);
 
-        const full = await client.post('/api/tasks', { ...TASK, name: 'Three' }).expect(409);
+        const full = await client.post('/api/v1/tasks', { ...TASK, name: 'Three' }).expect(409);
         expect(full.body.code).toBe('WORKBOOK_FULL');
       } finally {
         service.maxEntriesPerWorkbook = original;

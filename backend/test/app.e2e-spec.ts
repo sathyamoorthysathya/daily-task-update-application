@@ -36,13 +36,13 @@ describe('API (e2e)', () => {
   });
 
   it('returns the standard error envelope for unknown routes', async () => {
-    const res = await request(app.getHttpServer()).get('/api/does-not-exist').expect(404);
+    const res = await request(app.getHttpServer()).get('/api/v1/does-not-exist').expect(404);
 
     expect(res.body).toMatchObject({
       statusCode: 404,
       error: 'Not Found',
-      message: 'Cannot GET /api/does-not-exist',
-      path: '/api/does-not-exist',
+      message: 'Cannot GET /api/v1/does-not-exist',
+      path: '/api/v1/does-not-exist',
       method: 'GET',
     });
     expect(typeof res.body.timestamp).toBe('string');

@@ -42,7 +42,9 @@ test('an Excel write failure never loses a task; the workbook recovers with a re
   }
 
   // The task saved during the failure is in the task list.
-  const list = (await (await api(page).get('/api/tasks')).json()) as { items: { name: string }[] };
+  const list = (await (await api(page).get('/api/v1/tasks')).json()) as {
+    items: { name: string }[];
+  };
   expect(list.items.map((t) => t.name)).toContain('During the failure');
 
   await page.goto('/workbooks');

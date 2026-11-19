@@ -33,7 +33,7 @@ Everything has a default, so this file is optional.
 | ----------------- | ----------------------- | ------------------------------------------------------------------------------------------------- |
 | `NODE_ENV`        | `development`           | `development`, `test` or `production`                                                             |
 | `PORT`            | `3000`                  | HTTP port                                                                                         |
-| `API_PREFIX`      | `api`                   | Route prefix (`/api/...`)                                                                         |
+| `API_PREFIX`      | `api`                   | Route prefix; routes are versioned under it (`/api/v1/...`)                                       |
 | `DATABASE_URL`    | _(required)_            | `postgresql://USER:PASSWORD@HOST:PORT/DB?schema=public` (local: port 5432; Docker database: 5433) |
 | `FRONTEND_URL`    | `http://localhost:5173` | Public URL of the web client (used in emails)                                                     |
 | `CORS_ORIGINS`    | `http://localhost:5173` | Comma-separated allowed browser origins                                                           |
@@ -57,13 +57,28 @@ Everything has a default, so this file is optional.
 
 ### Rate limits
 
-| Variable                   | Default | Description                                         |
-| -------------------------- | ------- | --------------------------------------------------- |
-| `API_RATE_LIMIT`           | `300`   | Requests per IP per minute, any endpoint            |
-| `AUTH_RATE_LIMIT`          | `20`    | Requests per IP per minute to public auth endpoints |
-| `LOGIN_RATE_LIMIT`         | `5`     | Login attempts per IP + email per 15 minutes        |
-| `LOGIN_ACCOUNT_RATE_LIMIT` | `20`    | Login attempts per email from any IP per 15 minutes |
-| `WRITE_RATE_LIMIT`         | `60`    | Task and workbook changes per session per minute    |
+| Variable                   | Default | Description                                                      |
+| -------------------------- | ------- | ---------------------------------------------------------------- |
+| `API_RATE_LIMIT`           | `300`   | Requests per IP per minute, any endpoint                         |
+| `AUTH_RATE_LIMIT`          | `20`    | Requests per IP per minute to public auth endpoints              |
+| `LOGIN_RATE_LIMIT`         | `5`     | Login attempts per IP + email (or admin username) per 15 minutes |
+| `LOGIN_ACCOUNT_RATE_LIMIT` | `20`    | Login attempts per email from any IP per 15 minutes              |
+| `WRITE_RATE_LIMIT`         | `60`    | Task and workbook changes per session per minute                 |
+
+### Admin panel
+
+| Variable                     | Default         | Description                                                                                                                                                 |
+| ---------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ADMIN_USERNAME`             | _(empty)_       | First administrator, created at start-up if no administrator with this username exists (never changed afterwards). Set together with `ADMIN_PASSWORD`.      |
+| `ADMIN_PASSWORD`             | _(empty)_       | Its password: 12+ characters with upper- and lower-case letters, a number and a symbol, not containing the username. **Remove it after the first sign-in.** |
+| `ADMIN_SESSION_IDLE_MINUTES` | `30`            | An admin session ends after this many minutes without activity                                                                                              |
+| `ADMIN_SESSION_MAX_HOURS`    | `8`             | ... and at the latest this many hours after signing in                                                                                                      |
+| `ADMIN_LOCKOUT_THRESHOLD`    | `5`             | Failed admin sign-ins in a row (password or two-step code) that lock the account                                                                            |
+| `ADMIN_LOCKOUT_MINUTES`      | `15`            | How long a locked admin account stays locked (`npm run admin -- reset` unlocks it at once)                                                                  |
+| `ADMIN_ALLOWED_IPS`          | _(empty = any)_ | Comma-separated addresses or CIDR ranges allowed to use the admin API, e.g. `203.0.113.7, 10.0.0.0/8`. Needs a correct `TRUST_PROXY` behind proxies.        |
+| `PAGE_VIEW_RETENTION_DAYS`   | `180`           | Page visits (admin panel analytics) older than this are deleted daily                                                                                       |
+
+Two-step verification secrets are stored encrypted with a key derived from `JWT_ACCESS_SECRET`. After changing that secret, administrators set up two-step verification again (`npm run admin -- reset <username>`).
 
 ### Workbooks and Excel synchronisation
 
@@ -92,10 +107,11 @@ Everything has a default, so this file is optional.
 
 Optional; the defaults work.
 
-| Variable            | Default                 | Description                                                     |
-| ------------------- | ----------------------- | --------------------------------------------------------------- |
-| `VITE_API_BASE_URL` | `/api`                  | API base URL used by the browser (keep `/api` to use the proxy) |
-| `API_PROXY_TARGET`  | `http://localhost:3000` | Where the Vite dev/preview server forwards `/api` (not bundled) |
+| Variable            | Default                 | Description                                                        |
+| ------------------- | ----------------------- | ------------------------------------------------------------------ |
+| `VITE_API_BASE_URL` | `/api/v1`               | API base URL used by the browser (keep `/api/v1` to use the proxy) |
+| `API_PROXY_TARGET`  | `http://localhost:3000` | Where the Vite dev/preview server forwards `/api` (not bundled)    |
+| `VITE_ANALYTICS`    | `true`                  | `false` stops recording page visits for the admin panel            |
 
 ## Production (`.env.production`)
 

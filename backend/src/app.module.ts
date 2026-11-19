@@ -8,6 +8,8 @@ import { throttlerOptionsFactory } from './common/throttling/throttler.config.js
 import { createValidationPipe } from './common/validation/validation.pipe.js';
 import { envSchema } from './config/env.schema.js';
 import { DatabaseModule } from './database/database.module.js';
+import { AdminModule } from './modules/admin/admin.module.js';
+import { AnalyticsModule } from './modules/analytics/analytics.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { CsrfGuard } from './modules/auth/csrf/csrf.guard.js';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard.js';
@@ -35,6 +37,8 @@ import { WorkbooksModule } from './modules/workbooks/workbooks.module.js';
     UsersModule,
     WorkbooksModule,
     TasksModule,
+    AnalyticsModule,
+    AdminModule,
   ],
   providers: [
     // Registered through DI (not app.useGlobal*) so they also apply in e2e tests.

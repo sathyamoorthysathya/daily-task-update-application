@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import ExcelJS from 'exceljs';
 import type { TaskPriority, TaskStatus } from '../../generated/prisma/client.js';
 import { TASK_STATUSES, taskStatusLabel } from '../tasks/task-status.js';
+import type { CustomColumn, CustomValues } from './custom-columns.js';
 import {
   DAILY_TASK_COLUMNS,
   DAILY_TASKS_SHEET_NAME,
@@ -50,7 +51,13 @@ export interface DailyTaskRow {
   startTime?: string | null;
   endTime?: string | null;
   remarks?: string | null;
+  /** Values of the workbook's extra columns, by column id. */
+  customValues?: CustomValues;
 }
+
+/** ExcelJS column key of an extra column (prefixed so it never clashes with a built-in key). */
+const customKey = (column: CustomColumn) => `custom:${column.id}`;
+const CUSTOM_COLUMN_WIDTH = 24;
 
 const thin = { style: 'thin' as const, color: { argb: BORDER_COLOR } };
 
@@ -65,9 +72,14 @@ interface WorksheetWithValidations {
 /** Builds .xlsx workbooks with the "Daily Tasks" worksheet, optionally filled with rows. */
 @Injectable()
 export class WorkbookTemplateService {
+  /**
+   * `customColumns` are the workbook's extra columns, written after the built-in ones (from
+   * column Q on), so the built-in columns keep their positions in every workbook.
+   */
   async createDailyTasksWorkbook(
     title: string,
     rows: readonly DailyTaskRow[] = [],
+    customColumns: readonly CustomColumn[] = [],
   ): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
     const now = new Date();
@@ -101,6 +113,11 @@ export class WorkbookTemplateService {
         header: column.header,
         width: column.width,
       })),
+      ...customColumns.map((column) => ({
+        key: customKey(column),
+        header: column.name,
+        width: Math.max(CUSTOM_COLUMN_WIDTH, Math.min(column.name.length + 4, 44)),
+      })),
     ];
 
     // Column formats for the data rows.
@@ -121,6 +138,9 @@ export class WorkbookTemplateService {
     sheet.getColumn('hoursWorked').numFmt = '0.00';
     sheet.getColumn('hoursWorked').alignment = { horizontal: 'center', vertical: 'top' };
     sheet.getColumn('remarks').alignment = { vertical: 'top', wrapText: true };
+    for (const column of customColumns) {
+      sheet.getColumn(customKey(column)).alignment = { vertical: 'top', wrapText: true };
+    }
 
     const header = sheet.getRow(1);
     header.height = 24;
@@ -141,7 +161,7 @@ export class WorkbookTemplateService {
     }
 
     for (const row of rows) {
-      this.addRow(sheet, row);
+      this.addRow(sheet, row, customColumns);
     }
 
     // Status drop-down for every data row, including rows added later in Excel.
@@ -156,13 +176,17 @@ export class WorkbookTemplateService {
 
     sheet.autoFilter = {
       from: { row: 1, column: 1 },
-      to: { row: Math.max(1, rows.length + 1), column: LAST_COLUMN },
+      to: { row: Math.max(1, rows.length + 1), column: LAST_COLUMN + customColumns.length },
     };
 
     return Buffer.from(await workbook.xlsx.writeBuffer());
   }
 
-  private addRow(sheet: ExcelJS.Worksheet, row: DailyTaskRow): void {
+  private addRow(
+    sheet: ExcelJS.Worksheet,
+    row: DailyTaskRow,
+    customColumns: readonly CustomColumn[],
+  ): void {
     const excelRow = sheet.addRow({
       taskNumber: row.taskNumber,
       date: row.date,
@@ -186,6 +210,10 @@ export class WorkbookTemplateService {
           ? Math.round(((toMinutes(row.endTime) - toMinutes(row.startTime)) / 60) * 100) / 100
           : '',
       remarks: row.remarks ?? '',
+      // Plain strings: user text is never written as a formula.
+      ...Object.fromEntries(
+        customColumns.map((column) => [customKey(column), row.customValues?.[column.id] ?? '']),
+      ),
     });
     excelRow.eachCell({ includeEmpty: true }, (cell) => {
       cell.border = { top: thin, bottom: thin, left: thin, right: thin };

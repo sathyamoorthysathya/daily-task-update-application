@@ -16,6 +16,9 @@ export const WEB_URL = EXTERNAL_URL ?? `http://localhost:${WEB_PORT}`;
 export const STORAGE_DIR = path.join(E2E_DIR, '.storage', 'workbooks');
 /** Every account created by the browser tests uses this domain (and is deleted afterwards). */
 export const EMAIL_DOMAIN = 'playwright.test';
+/** Administrator created by the API started for the tests (ADMIN_USERNAME), deleted afterwards. */
+export const ADMIN_USERNAME = 'playwright-admin';
+export const ADMIN_PASSWORD = 'Pl4ywright-Adm1n-Pass!';
 
 // Local runs reuse backend/.env (DATABASE_URL, secrets); CI passes them as environment variables.
 const backendEnv = path.join(E2E_DIR, '..', 'backend', '.env');

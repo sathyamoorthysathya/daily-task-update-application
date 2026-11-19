@@ -21,7 +21,7 @@ export function mapPrismaError(exception: unknown): MappedError | undefined {
     switch (exception.code) {
       case 'P2000':
         return {
-          statusCode: HttpStatus.BAD_REQUEST,
+          statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
           message: 'A provided value is too long for its field',
         };
       case 'P2002':
