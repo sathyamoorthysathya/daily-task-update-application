@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res } from '@
 import type { Response } from 'express';
 import { WriteRateLimit } from '../auth/decorators/rate-limit.decorator.js';
 import {
-  ApiBadRequestResponse,
+  ApiUnprocessableEntityResponse,
   ApiConflictResponse,
   ApiCookieAuth,
   ApiCreatedResponse,
@@ -195,7 +195,10 @@ export class TasksController {
   })
   @ApiZodBody(createTaskSchema)
   @ApiCreatedResponse({ type: SaveTaskResultDto })
-  @ApiBadRequestResponse({ type: ApiErrorResponseDto, description: 'Invalid input or no workbook' })
+  @ApiUnprocessableEntityResponse({
+    type: ApiErrorResponseDto,
+    description: 'Invalid input or no workbook',
+  })
   @ApiConflictResponse({
     type: ApiErrorResponseDto,
     description: 'TASK_ALREADY_EXISTS: `details` describes the existing task',

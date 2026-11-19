@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { TASK_STATUS_VALUES } from '../task-status.js';
+import { CustomColumnDto } from '../../workbooks/dto/workbook.dto.js';
 
 export class TaskUpdateDto {
   @ApiProperty({ format: 'uuid' })
@@ -36,6 +37,14 @@ export class TaskUpdateDto {
 
   @ApiProperty({ type: String, nullable: true, description: 'Blockers or notes for the manager' })
   remarks!: string | null;
+
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { type: 'string' },
+    example: { c1: 'Acme Ltd' },
+    description: "Values of the workbook's extra columns, by column id (unset columns omitted)",
+  })
+  customValues!: Record<string, string>;
 
   @ApiProperty({ description: 'Send back when editing (optimistic locking)' })
   version!: number;
@@ -122,9 +131,14 @@ export class TaskHistoryDto {
   createdAt!: string;
 }
 
+export class TaskWorkbookDto extends WorkbookRefDto {
+  @ApiProperty({ type: [CustomColumnDto], description: 'Extra columns of the workbook' })
+  customColumns!: CustomColumnDto[];
+}
+
 export class TaskDetailDto extends TaskDto {
-  @ApiProperty({ type: WorkbookRefDto })
-  workbook!: WorkbookRefDto;
+  @ApiProperty({ type: TaskWorkbookDto })
+  workbook!: TaskWorkbookDto;
 
   @ApiProperty({ type: [TaskUpdateDto], description: 'Newest first' })
   updates!: TaskUpdateDto[];

@@ -31,6 +31,7 @@ export const AuthErrorCode = {
   InvalidCurrentPassword: 'INVALID_CURRENT_PASSWORD',
   PasswordUnchanged: 'PASSWORD_UNCHANGED',
   Forbidden: 'FORBIDDEN',
+  AccountDisabled: 'ACCOUNT_DISABLED',
 } as const;
 
 export type AuthErrorCode = (typeof AuthErrorCode)[keyof typeof AuthErrorCode];

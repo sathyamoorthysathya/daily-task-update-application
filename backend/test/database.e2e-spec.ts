@@ -27,9 +27,9 @@ describe('Database (e2e)', () => {
     const client = await AuthTestClient.create(app);
     const reg = await client.register(uniqueEmail('db')).expect(201);
     const userId = (reg.body as { user: { id: string } }).user.id;
-    const wb = await client.post('/api/workbooks', { name: 'DB checks' }).expect(201);
+    const wb = await client.post('/api/v1/workbooks', { name: 'DB checks' }).expect(201);
     const task = await client
-      .post('/api/tasks', {
+      .post('/api/v1/tasks', {
         name: 'Constraint test',
         entryDate: '2026-11-08',
         description: 'Row for constraint checks',

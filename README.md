@@ -7,6 +7,7 @@ A web application for recording daily work as tasks. Every task is saved in Post
 - **Daily tasks:** auto-numbered and dated, with a status. The same task can get an entry on several days, and the app asks what to do when a name already exists.
 - **Task management:** search, filters, sorting, pagination, editing, safe delete and a full change history.
 - **Dashboard:** key figures, a 14-day activity chart, tasks by status, recent updates and workbook progress.
+- **Admin panel:** a separate, secured area for administrators: all users and their usage, which pages people visit, failed sign-ins and the audit log, and disabling accounts.
 - **Reliability and security:** Excel files are updated in the background with retries and recovery, plus secure sessions, rate limits and an audit log.
 
 | Layer    | Technology                                                                   |
@@ -24,6 +25,7 @@ A web application for recording daily work as tasks. Every task is saved in Post
   - [Option 1: Locally](#option-1-locally-nodejs--postgresql)
   - [Option 2: Docker](#option-2-docker-one-command)
 - [Google sign-in (optional)](#google-sign-in-optional)
+- [Admin panel](#admin-panel)
 - [Commands](#commands)
 - [Testing](#testing)
 - [Project structure](#project-structure)
@@ -95,7 +97,7 @@ There are two ways to run the app on your computer. Both give you the full appli
    npm run dev
    ```
 
-   Wait for `API listening on http://localhost:3000/api` and `Local: http://localhost:5173/`.
+   Wait for `API listening on http://localhost:3000/api/v1` and `Local: http://localhost:5173/`.
 
 3. Open **http://localhost:5173**, create an account and your first Excel workbook.
 
@@ -156,6 +158,37 @@ You never need the client secret. Signing in with Google using the email of an e
 
 ---
 
+## Admin panel
+
+Administrators manage the application at **/admin** (http://localhost:5173/admin, or http://localhost:8080/admin with Docker). An administrator is a separate account with its own **unique username** and password; app users can never open the admin panel.
+
+**Create the first administrator** (choose one):
+
+- In `backend/.env` (or the root `.env` for Docker) set `ADMIN_USERNAME` and `ADMIN_PASSWORD`, then (re)start the API. The account is created once; afterwards remove `ADMIN_PASSWORD` from the file.
+- Or from the command line, after `npm run build -w backend`:
+
+  ```powershell
+  npm run admin -w backend -- create chief --name "Chief Admin"   # asks for the password
+  npm run admin -w backend -- list
+  npm run admin -w backend -- reset chief    # forgotten password / lost phone: new password, unlocked, 2-step off
+  ```
+
+  In Docker: `docker compose exec api node dist/cli/admin.js create chief`.
+
+Passwords need 12+ characters with upper- and lower-case letters, a number and a symbol.
+
+| Page               | What it shows                                                                                                                                                                                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Overview**       | Users (total, new, active today / 7 / 30 days), page views, task entries, sign-ups per day, most visited pages, newest and most active users, security alerts                                                                  |
+| **Users**          | Search, filter (active, disabled, email not verified) and sort all users; per user: profile, usage, signed-in devices, pages they use, visits, security events. **Disable / enable** an account or **sign it out everywhere**. |
+| **Page visits**    | Which pages are opened, per day and hour, by device, browser and operating system, and a visit log (who opened what, when)                                                                                                     |
+| **Security**       | Successful and failed sign-ins per day, why they failed, addresses and accounts with the most failures, admin lockouts, stolen-session alerts, and the full audit log                                                          |
+| **Admin settings** | Change password, **two-step verification** (authenticator app), your admin sessions, all administrators                                                                                                                        |
+
+**Security of the admin panel:** separate session cookie (HttpOnly, SameSite=Strict, sent only to `/api/v1/admin`) that ends after 30 idle minutes or 8 hours; the account locks for 15 minutes after 5 wrong attempts; optional two-step verification (TOTP); optional IP allow-list (`ADMIN_ALLOWED_IPS`); CSRF protection and rate limits; every sign-in and admin action goes to the audit log. Page visits store the page only (IDs and search words removed), never IP addresses, and are deleted after 180 days. See [Admin panel](docs/ARCHITECTURE.md#admin-panel) and [Configuration](docs/CONFIGURATION.md#admin-panel).
+
+---
+
 ## Commands
 
 Run these from the project folder.
@@ -169,6 +202,7 @@ Run these from the project folder.
 | `npm run build`                                     | Production build of both apps                                 |
 | `npm run prisma:deploy -w backend`                  | Apply database migrations                                     |
 | `npm run prisma:studio -w backend`                  | Browse the database in the browser                            |
+| `npm run admin -w backend -- create <username>`     | Add an administrator (also `list`, `reset <username>`)        |
 | `npm run prod:up` / `prod:down`                     | Production stack (see [deployment guide](docs/DEPLOYMENT.md)) |
 | `npm run lint` / `typecheck`                        | ESLint / strict TypeScript checks                             |
 | `npm run format` / `format:check`                   | Prettier                                                      |
@@ -203,14 +237,15 @@ Results and coverage are documented in the [testing report](docs/TESTING_REPORT.
 │   │   ├── config/              Settings schema (validated at startup)
 │   │   ├── common/              Error filter, validation, rate limits, monitoring and audit log
 │   │   ├── database/            Prisma service
-│   │   └── modules/             auth, users (profile), workbooks (+ Excel sync), tasks, mail, health
+│   │   ├── cli/                 Admin command line (create / reset administrators)
+│   │   └── modules/             auth, users (profile), workbooks (+ Excel sync), tasks, analytics, admin, mail, health
 │   ├── test/                    API and database tests
 │   └── Dockerfile               API image and migration job
 ├── frontend/                    React web client
 │   ├── src/
 │   │   ├── app/                 Routes
 │   │   ├── components/          Layout (sidebar, top bar), form fields, icons
-│   │   ├── features/            auth, dashboard, tasks, workbooks, profile, health
+│   │   ├── features/            auth, dashboard, tasks, workbooks, profile, health, analytics, admin
 │   │   └── lib/api/             HTTP client (cookies, CSRF, session refresh)
 │   ├── nginx/                   Web server configuration (Docker)
 │   └── Dockerfile               Web image
@@ -251,6 +286,7 @@ New features go in `backend/src/modules/<feature>/` and `frontend/src/features/<
 | `failed to connect to the docker API`                | Start Docker Desktop and try again.                                                                                                                                                                   |
 | "Continue with Google" is missing                    | `GOOGLE_CLIENT_ID` is not set. See [Google sign-in](#google-sign-in-optional).                                                                                                                        |
 | Google shows an origin error or "Access blocked"     | Add the page's address to **Authorized JavaScript origins**, and your account under **Test users**.                                                                                                   |
+| Admin sign-in says the account is locked             | Wait 15 minutes, or reset it: `npm run admin -w backend -- reset <username>`.                                                                                                                         |
 | `429 Too many attempts`                              | A rate limit was hit; wait for the time in the message.                                                                                                                                               |
 | "Excel update retrying" / "Excel update failed"      | Your tasks are saved; writing the file failed. Check the API log (`excel_sync.job_failed`), fix the cause (usually a locked file or a storage folder that isn't writable), then click **Resync now**. |
 | "Updating Excel…" never finishes                     | The Excel worker isn't running: check `EXCEL_SYNC_WORKER_ENABLED`.                                                                                                                                    |

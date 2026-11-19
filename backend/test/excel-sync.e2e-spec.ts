@@ -57,7 +57,7 @@ describe('Excel synchronisation outbox (e2e)', () => {
   async function userWithWorkbook(label: string) {
     const client = await AuthTestClient.create(app);
     const res = await client.register(uniqueEmail(label)).expect(201);
-    const wb = await client.post('/api/workbooks', { name: 'Daily Tasks' }).expect(201);
+    const wb = await client.post('/api/v1/workbooks', { name: 'Daily Tasks' }).expect(201);
     return {
       client,
       userId: (res.body as { user: { id: string } }).user.id,
@@ -66,7 +66,7 @@ describe('Excel synchronisation outbox (e2e)', () => {
   }
 
   async function createTask(client: AuthTestClient, name: string, body: object = {}) {
-    const res = await client.post('/api/tasks', { ...TASK, name, ...body }).expect(201);
+    const res = await client.post('/api/v1/tasks', { ...TASK, name, ...body }).expect(201);
     return res.body as SaveResult;
   }
 
@@ -140,9 +140,9 @@ describe('Excel synchronisation outbox (e2e)', () => {
       const { client, workbookId } = await userWithWorkbook('outbox');
 
       const saved = await createTask(client, 'Ledger');
-      await client.post('/api/tasks', { ...TASK, name: ' LEDGER ' }).expect(409);
+      await client.post('/api/v1/tasks', { ...TASK, name: ' LEDGER ' }).expect(409);
       await client
-        .post(`/api/tasks/${saved.task.id}/updates`, { ...TASK, entryDate: '2026-11-05' })
+        .post(`/api/v1/tasks/${saved.task.id}/updates`, { ...TASK, entryDate: '2026-11-05' })
         .expect(409);
 
       expect(saved.excelSync).toEqual({ workbookId, status: 'queued', jobId: expect.any(String) });
@@ -158,7 +158,7 @@ describe('Excel synchronisation outbox (e2e)', () => {
 
       // A no-op edit changes nothing, so it queues nothing.
       const noop = await client
-        .patch(`/api/tasks/${saved.task.id}/updates/${saved.update.id}`, {
+        .patch(`/api/v1/tasks/${saved.task.id}/updates/${saved.update.id}`, {
           description: TASK.description,
           reference: TASK.reference,
           status: TASK.status,
@@ -183,21 +183,21 @@ describe('Excel synchronisation outbox (e2e)', () => {
       const created = await createTask(client, 'Payroll');
       const added = (
         await client
-          .post(`/api/tasks/${created.task.id}/updates`, { ...TASK, entryDate: '2026-11-06' })
+          .post(`/api/v1/tasks/${created.task.id}/updates`, { ...TASK, entryDate: '2026-11-06' })
           .expect(201)
       ).body as SaveResult;
       await client
-        .patch(`/api/tasks/${created.task.id}/updates/${added.update.id}`, {
+        .patch(`/api/v1/tasks/${created.task.id}/updates/${added.update.id}`, {
           ...EDIT,
           description: 'Edited',
           version: added.update.version,
         })
         .expect(200);
       const renamed = await client
-        .patch(`/api/tasks/${created.task.id}`, { name: 'Payroll run', version: 3 })
+        .patch(`/api/v1/tasks/${created.task.id}`, { name: 'Payroll run', version: 3 })
         .expect(200);
       await client.agent
-        .delete(`/api/tasks/${created.task.id}?version=${renamed.body.task.version as number}`)
+        .delete(`/api/v1/tasks/${created.task.id}?version=${renamed.body.task.version as number}`)
         .set('X-CSRF-Token', client.csrfToken)
         .expect(200);
 
@@ -242,7 +242,7 @@ describe('Excel synchronisation outbox (e2e)', () => {
       const startedAt = Date.now();
       const second = await createTask(client, 'Second');
       await client
-        .patch(`/api/tasks/${first.task.id}/updates/${first.update.id}`, {
+        .patch(`/api/v1/tasks/${first.task.id}/updates/${first.update.id}`, {
           ...EDIT,
           description: 'Edited during the write',
           version: 1,
@@ -290,7 +290,7 @@ describe('Excel synchronisation outbox (e2e)', () => {
       expect(delay).toBeGreaterThanOrEqual(700);
       expect(delay).toBeLessThanOrEqual(1300);
 
-      const status = (await client.get(`/api/workbooks/${workbookId}/sync-status`).expect(200))
+      const status = (await client.get(`/api/v1/workbooks/${workbookId}/sync-status`).expect(200))
         .body as Record<string, unknown>;
       expect(status).toMatchObject({
         state: 'retrying',
@@ -298,7 +298,7 @@ describe('Excel synchronisation outbox (e2e)', () => {
         lastError: LOCKED,
         nextRetryAt: failed.nextAttemptAt.toISOString(),
       });
-      expect((await client.get(`/api/workbooks/${workbookId}`)).body).toMatchObject({
+      expect((await client.get(`/api/v1/workbooks/${workbookId}`)).body).toMatchObject({
         syncStatus: 'retrying',
         syncError: LOCKED,
       });
@@ -311,7 +311,7 @@ describe('Excel synchronisation outbox (e2e)', () => {
       await worker.drain();
       expect(await job(saved.excelSync.jobId!)).toMatchObject({ status: 'SUCCEEDED', attempts: 2 });
       await expectFileMatchesDatabase(workbookId);
-      expect((await client.get(`/api/workbooks/${workbookId}`)).body).toMatchObject({
+      expect((await client.get(`/api/v1/workbooks/${workbookId}`)).body).toMatchObject({
         syncStatus: 'synced',
         syncError: null,
       });
@@ -364,7 +364,7 @@ describe('Excel synchronisation outbox (e2e)', () => {
       // A dead job is never picked up again on its own.
       await worker.drain();
       expect(await job(jobId)).toMatchObject({ status: 'DEAD', attempts: 3 });
-      expect((await client.get(`/api/workbooks/${workbookId}/sync-status`)).body).toMatchObject({
+      expect((await client.get(`/api/v1/workbooks/${workbookId}/sync-status`)).body).toMatchObject({
         state: 'failed',
         failedJobs: 1,
         lastError: NO_SPACE,
@@ -374,7 +374,7 @@ describe('Excel synchronisation outbox (e2e)', () => {
       // The disk is fixed; the user asks for a resync.
       writeSpy?.mockRestore();
       writeSpy = undefined;
-      const resync = await client.post(`/api/workbooks/${workbookId}/sync`).expect(202);
+      const resync = await client.post(`/api/v1/workbooks/${workbookId}/sync`).expect(202);
       expect(resync.body).toMatchObject({ workbookId, state: 'failed', pendingJobs: 1 });
       await worker.drain();
 
@@ -383,7 +383,7 @@ describe('Excel synchronisation outbox (e2e)', () => {
       });
       expect(manual).toMatchObject({ status: 'SUCCEEDED', attempts: 1 });
       expect(await job(jobId)).toMatchObject({ status: 'SUCCEEDED', resolvedByJobId: manual.id });
-      expect((await client.get(`/api/workbooks/${workbookId}/sync-status`)).body).toMatchObject({
+      expect((await client.get(`/api/v1/workbooks/${workbookId}/sync-status`)).body).toMatchObject({
         state: 'synced',
         failedJobs: 0,
         lastError: null,
@@ -396,8 +396,8 @@ describe('Excel synchronisation outbox (e2e)', () => {
       const alice = await userWithWorkbook('resync-alice');
       const bob = await userWithWorkbook('resync-bob');
 
-      await bob.client.post(`/api/workbooks/${alice.workbookId}/sync`).expect(404);
-      await bob.client.get(`/api/workbooks/${alice.workbookId}/sync-status`).expect(404);
+      await bob.client.post(`/api/v1/workbooks/${alice.workbookId}/sync`).expect(404);
+      await bob.client.get(`/api/v1/workbooks/${alice.workbookId}/sync-status`).expect(404);
       expect(await prisma.excelSyncJob.count({ where: { workbookId: alice.workbookId } })).toBe(0);
     });
   });
@@ -486,7 +486,9 @@ describe('Excel synchronisation outbox (e2e)', () => {
       const { client, workbookId } = await userWithWorkbook('dupes');
       const task = await createTask(client, 'Daily standup');
       for (const entryDate of ['2026-11-06', '2026-11-07', '2026-11-08']) {
-        await client.post(`/api/tasks/${task.task.id}/updates`, { ...TASK, entryDate }).expect(201);
+        await client
+          .post(`/api/v1/tasks/${task.task.id}/updates`, { ...TASK, entryDate })
+          .expect(201);
       }
       await createTask(client, 'Code review');
 
@@ -494,7 +496,7 @@ describe('Excel synchronisation outbox (e2e)', () => {
       // Repeated manual resyncs, processed by several concurrent drains.
       await Promise.all(
         Array.from({ length: 4 }, () =>
-          client.post(`/api/workbooks/${workbookId}/sync`).expect(202),
+          client.post(`/api/v1/workbooks/${workbookId}/sync`).expect(202),
         ),
       );
       await Promise.all([worker.drain(), worker.drain(), worker.drain()]);
@@ -514,7 +516,7 @@ describe('Excel synchronisation outbox (e2e)', () => {
       const users = await Promise.all(['a', 'b', 'c'].map((s) => userWithWorkbook(`multi-${s}`)));
       const workbookIds: string[] = [];
       for (const user of users) {
-        const second = await user.client.post('/api/workbooks', { name: 'Second' }).expect(201);
+        const second = await user.client.post('/api/v1/workbooks', { name: 'Second' }).expect(201);
         workbookIds.push(user.workbookId, (second.body as { id: string }).id);
       }
 
@@ -538,7 +540,7 @@ describe('Excel synchronisation outbox (e2e)', () => {
       const submissions = users.flatMap((user, u) =>
         Array.from({ length: 6 }, (_, i) =>
           user.client
-            .post('/api/tasks', {
+            .post('/api/v1/tasks', {
               ...TASK,
               name: `Task ${i % 3}`,
               workbookId: workbookIds[u * 2 + (i % 2)],
@@ -559,7 +561,7 @@ describe('Excel synchronisation outbox (e2e)', () => {
           return Promise.all(
             tasks.map((t) =>
               user.client
-                .patch(`/api/tasks/${t.id}/updates/${t.updates[0]!.id}`, {
+                .patch(`/api/v1/tasks/${t.id}/updates/${t.updates[0]!.id}`, {
                   ...EDIT,
                   description: `Edited ${t.name}`,
                   version: t.updates[0]!.version,
@@ -596,7 +598,8 @@ describe('Excel synchronisation outbox (e2e)', () => {
       let state = '';
       for (let i = 0; i < 50 && state !== 'synced'; i += 1) {
         await pause(100);
-        state = (await client.get(`/api/workbooks/${workbookId}/sync-status`)).body.state as string;
+        state = (await client.get(`/api/v1/workbooks/${workbookId}/sync-status`)).body
+          .state as string;
       }
 
       expect(state).toBe('synced');

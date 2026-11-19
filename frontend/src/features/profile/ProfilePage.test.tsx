@@ -187,7 +187,7 @@ describe('ProfilePage', () => {
       expect(upload?.path).toBe('/profile/avatar');
       const images = screen.getAllByTestId('avatar-image');
       expect(
-        images.some((img) => img.getAttribute('src') === '/api/profile/avatar?v=1700000000000'),
+        images.some((img) => img.getAttribute('src') === '/api/v1/profile/avatar?v=1700000000000'),
       ).toBe(true);
     });
 

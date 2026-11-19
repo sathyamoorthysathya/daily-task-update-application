@@ -64,6 +64,9 @@ export function describeHistory(entry: TaskHistoryEntry): { title: string; detai
       if (isChange(changes.remarks)) {
         details.push(changes.remarks.to ? 'Remarks changed' : 'Remarks removed');
       }
+      if (isChange(changes.customValues)) {
+        details.push('Extra columns changed');
+      }
       return { title: `Entry for ${asDate(changes.entryDate)} updated`, details };
     }
     case 'TASK_RENAMED': {

@@ -57,7 +57,8 @@ describe('Task management page (e2e)', () => {
   }
 
   async function workbook(client: AuthTestClient, name: string) {
-    return ((await client.post('/api/workbooks', { name }).expect(201)).body as { id: string }).id;
+    return ((await client.post('/api/v1/workbooks', { name }).expect(201)).body as { id: string })
+      .id;
   }
 
   async function task(
@@ -67,7 +68,7 @@ describe('Task management page (e2e)', () => {
     extra: Record<string, unknown> = {},
   ) {
     const res = await client
-      .post('/api/tasks', {
+      .post('/api/v1/tasks', {
         name,
         entryDate,
         description: `${name} work`,
@@ -79,11 +80,11 @@ describe('Task management page (e2e)', () => {
   }
 
   async function list(client: AuthTestClient, query = ''): Promise<TaskPage> {
-    return (await client.get(`/api/tasks${query}`).expect(200)).body as TaskPage;
+    return (await client.get(`/api/v1/tasks${query}`).expect(200)).body as TaskPage;
   }
 
   async function detail(client: AuthTestClient, id: string): Promise<Detail> {
-    return (await client.get(`/api/tasks/${id}`).expect(200)).body as Detail;
+    return (await client.get(`/api/v1/tasks/${id}`).expect(200)).body as Detail;
   }
 
   /** Task names in the stored Excel file once the queued sync jobs have run. */
@@ -106,7 +107,7 @@ describe('Task management page (e2e)', () => {
 
   const del = (client: AuthTestClient, id: string, version: number) =>
     client.agent
-      .delete(`/api/tasks/${id}?version=${version}`)
+      .delete(`/api/v1/tasks/${id}?version=${version}`)
       .set('X-CSRF-Token', client.csrfToken);
 
   beforeAll(async () => {
@@ -147,7 +148,7 @@ describe('Task management page (e2e)', () => {
       const audit = await task(client, 'Audit_prep', '2026-09-15', { workbookId: apollo });
       // Audit_prep: worked on in September and again on 30 Oct (latest).
       await client
-        .post(`/api/tasks/${audit.id}/updates`, {
+        .post(`/api/v1/tasks/${audit.id}/updates`, {
           entryDate: '2026-10-30',
           description: 'Second pass',
           status: 'PENDING',
@@ -248,13 +249,13 @@ describe('Task management page (e2e)', () => {
     });
 
     it('validates query parameters', async () => {
-      const res = await client.get('/api/tasks?from=2026-10-10&to=2026-10-01').expect(400);
+      const res = await client.get('/api/v1/tasks?from=2026-10-10&to=2026-10-01').expect(422);
       expect(res.body.errors).toEqual([
         { field: 'to', message: 'The end date must be on or after the start date' },
       ]);
-      await client.get('/api/tasks?status=DONE').expect(400);
-      await client.get('/api/tasks?pageSize=1000').expect(400);
-      await client.get('/api/tasks?sort=random').expect(400);
+      await client.get('/api/v1/tasks?status=DONE').expect(422);
+      await client.get('/api/v1/tasks?pageSize=1000').expect(422);
+      await client.get('/api/v1/tasks?sort=random').expect(422);
       // Empty parameters mean "no filter".
       expect((await list(client, '?status=&workbookId=&search=&from=&to=')).total).toBe(25);
     });
@@ -265,7 +266,7 @@ describe('Task management page (e2e)', () => {
       await task(other, 'Report 99', '2026-10-01');
 
       expect((await list(other)).items.map((t) => t.name)).toEqual(['Report 99']);
-      await other.get(`/api/tasks?workbookId=${main}`).expect(404);
+      await other.get(`/api/v1/tasks?workbookId=${main}`).expect(404);
       expect((await list(client, '?search=Report%2099')).total).toBe(0);
     });
   });
@@ -276,7 +277,7 @@ describe('Task management page (e2e)', () => {
       const wb = await workbook(client, 'Main');
       const created = await task(client, 'Close books', '2026-11-01');
       await client
-        .post(`/api/tasks/${created.id}/updates`, {
+        .post(`/api/v1/tasks/${created.id}/updates`, {
           entryDate: '2026-11-02',
           description: 'Done',
           status: 'COMPLETED',
@@ -307,7 +308,7 @@ describe('Task management page (e2e)', () => {
       const created = await task(client, 'Draft name', '2026-11-01');
 
       const res = await client
-        .patch(`/api/tasks/${created.id}`, { name: 'Final name', version: created.version })
+        .patch(`/api/v1/tasks/${created.id}`, { name: 'Final name', version: created.version })
         .expect(200);
 
       expect(res.body).toMatchObject({
@@ -322,7 +323,7 @@ describe('Task management page (e2e)', () => {
       expect(await excelNames(wb)).toEqual(['Final name']);
       // The new name is what duplicate detection now uses.
       await client
-        .post('/api/tasks', {
+        .post('/api/v1/tasks', {
           name: 'final NAME',
           entryDate: '2026-11-02',
           description: 'x',
@@ -338,13 +339,15 @@ describe('Task management page (e2e)', () => {
       await task(client, 'Beta', '2026-11-01');
 
       const taken = await client
-        .patch(`/api/tasks/${a.id}`, { name: 'beta', version: a.version })
+        .patch(`/api/v1/tasks/${a.id}`, { name: 'beta', version: a.version })
         .expect(409);
       expect(taken.body.code).toBe('TASK_NAME_TAKEN');
 
-      await client.patch(`/api/tasks/${a.id}`, { name: 'Alpha 2', version: a.version }).expect(200);
+      await client
+        .patch(`/api/v1/tasks/${a.id}`, { name: 'Alpha 2', version: a.version })
+        .expect(200);
       const stale = await client
-        .patch(`/api/tasks/${a.id}`, { name: 'Alpha 3', version: a.version })
+        .patch(`/api/v1/tasks/${a.id}`, { name: 'Alpha 3', version: a.version })
         .expect(409);
       expect(stale.body.code).toBe('TASK_VERSION_CONFLICT');
     });
@@ -355,7 +358,7 @@ describe('Task management page (e2e)', () => {
       const created = await task(client, 'Versioned', '2026-11-01');
 
       await client
-        .post(`/api/tasks/${created.id}/updates`, {
+        .post(`/api/v1/tasks/${created.id}/updates`, {
           entryDate: '2026-11-02',
           description: 'Next',
           status: 'TO_DO',
@@ -377,7 +380,7 @@ describe('Task management page (e2e)', () => {
       const keep = await task(client, 'Keep me', '2026-11-01');
       const doomed = await task(client, 'Delete me', '2026-11-01');
       await client
-        .post(`/api/tasks/${doomed.id}/updates`, {
+        .post(`/api/v1/tasks/${doomed.id}/updates`, {
           entryDate: '2026-11-02',
           description: 'More',
           status: 'PENDING',
@@ -392,9 +395,9 @@ describe('Task management page (e2e)', () => {
         excelSync: { workbookId: wb, status: 'queued', jobId: expect.any(String) },
       });
       expect((await list(client)).items.map((t) => t.id)).toEqual([keep.id]);
-      await client.get(`/api/tasks/${doomed.id}`).expect(404);
+      await client.get(`/api/v1/tasks/${doomed.id}`).expect(404);
       expect(await excelNames(wb)).toEqual(['Keep me']);
-      expect((await client.get(`/api/workbooks/${wb}`)).body.taskCount).toBe(1);
+      expect((await client.get(`/api/v1/workbooks/${wb}`)).body.taskCount).toBe(1);
 
       // Audit information is preserved in PostgreSQL.
       const stored = await prisma.task.findUniqueOrThrow({
@@ -442,17 +445,17 @@ describe('Task management page (e2e)', () => {
 
       await del(client, created.id, created.version + 1).expect(404);
       await client
-        .patch(`/api/tasks/${created.id}`, { name: 'Zombie', version: created.version + 1 })
+        .patch(`/api/v1/tasks/${created.id}`, { name: 'Zombie', version: created.version + 1 })
         .expect(404);
       await client
-        .post(`/api/tasks/${created.id}/updates`, {
+        .post(`/api/v1/tasks/${created.id}/updates`, {
           entryDate: '2026-11-03',
           description: 'x',
           status: 'TO_DO',
         })
         .expect(404);
       await client
-        .get(`/api/tasks/recent-updates`)
+        .get(`/api/v1/tasks/recent-updates`)
         .expect(200)
         .expect(({ body }) => {
           expect((body as { updates: unknown[] }).updates).toEqual([]);
@@ -466,7 +469,7 @@ describe('Task management page (e2e)', () => {
 
       const [deleted, added] = await Promise.all([
         del(client, created.id, created.version),
-        client.post(`/api/tasks/${created.id}/updates`, {
+        client.post(`/api/v1/tasks/${created.id}/updates`, {
           entryDate: '2026-11-02',
           description: 'Racing',
           status: 'TO_DO',

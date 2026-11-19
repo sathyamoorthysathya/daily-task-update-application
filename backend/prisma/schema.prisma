@@ -22,6 +22,12 @@ model User {
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
   /// Workbook pre-selected for new tasks. Always one of the user's own workbooks (enforced by the API).
   defaultWorkbookId String?   @unique @map("default_workbook_id") @db.Uuid
+  /// Set by an administrator: the user cannot sign in (their sessions are revoked when set).
+  disabledAt        DateTime? @map("disabled_at") @db.Timestamptz(3)
+  /// Why the account was disabled (shown to administrators only).
+  disabledReason    String?   @map("disabled_reason") @db.VarChar(500)
+  /// Last sign-in or page visit (updated at most once a minute).
+  lastSeenAt        DateTime? @map("last_seen_at") @db.Timestamptz(3)
 
   defaultWorkbook     Workbook?            @relation("DefaultWorkbook", fields: [defaultWorkbookId], references: [id], onDelete: SetNull)
   workbooks           Workbook[]           @relation("UserWorkbooks")
@@ -34,7 +40,10 @@ model User {
   accounts            AuthAccount[]
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
+  pageViews           PageView[]
 
+  @@index([createdAt])
+  @@index([lastSeenAt])
   @@map("users")
 }
 
@@ -161,6 +170,9 @@ model Workbook {
   syncError      String?   @map("sync_error") @db.VarChar(500)
   /// Optimistic-concurrency version for renames/deletes.
   version        Int       @default(1)
+  /// Extra columns the user added when creating the workbook: [{ "id": "c1", "name": "Client" }],
+  /// written after the built-in columns of the "Daily Tasks" sheet. Fixed after creation.
+  customColumns  Json      @default("[]") @map("custom_columns")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -251,22 +263,24 @@ model Task {
 
 /// One dated submission for a task (one row in the Excel sheet). At most one per task and date.
 model TaskUpdate {
-  id          String     @id @default(uuid(7)) @db.Uuid
-  taskId      String     @map("task_id") @db.Uuid
-  userId      String     @map("user_id") @db.Uuid
-  entryDate   DateTime   @map("entry_date") @db.Date
-  status      TaskStatus
-  description String     @db.VarChar(5000)
-  reference   String?    @db.VarChar(2000)
+  id           String     @id @default(uuid(7)) @db.Uuid
+  taskId       String     @map("task_id") @db.Uuid
+  userId       String     @map("user_id") @db.Uuid
+  entryDate    DateTime   @map("entry_date") @db.Date
+  status       TaskStatus
+  description  String     @db.VarChar(5000)
+  reference    String?    @db.VarChar(2000)
   /// Working hours of the day, wall-clock "HH:MM" (CHECK constraints in the migration).
-  startTime   String?    @map("start_time") @db.VarChar(5)
-  endTime     String?    @map("end_time") @db.VarChar(5)
+  startTime    String?    @map("start_time") @db.VarChar(5)
+  endTime      String?    @map("end_time") @db.VarChar(5)
   /// Blockers, problems or notes for the manager.
-  remarks     String?    @db.VarChar(2000)
+  remarks      String?    @db.VarChar(2000)
+  /// Values of the workbook's extra columns, by column id: { "c1": "Acme Ltd" }.
+  customValues Json       @default("{}") @map("custom_values")
   /// Optimistic-concurrency version, incremented on every edit.
-  version     Int        @default(1)
-  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version      Int        @default(1)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   task    Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -381,10 +395,85 @@ model AuditEvent {
   resourceId   String?      @map("resource_id") @db.Uuid
   /// Event-specific details (reasons, counts); never secrets.
   details      Json?
+  /// Administrator who performed the action (admin.* events).
+  adminId      String?      @map("admin_id") @db.Uuid
   createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@index([userId, createdAt])
+  @@index([adminId, createdAt])
   @@index([event, createdAt])
   @@index([createdAt])
   @@map("audit_events")
+}
+
+/// An administrator of the application. Separate from application users: administrators sign
+/// in to the admin panel with a unique username, never with an app account.
+model AdminUser {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  /// Unique, stored lower-case: 3-32 letters, digits, dots, dashes or underscores (CHECK).
+  username          String    @unique @db.VarChar(32)
+  displayName       String    @map("display_name") @db.VarChar(100)
+  /// Argon2id hash (PHC string).
+  passwordHash      String    @map("password_hash")
+  passwordChangedAt DateTime  @default(now()) @map("password_changed_at") @db.Timestamptz(3)
+  /// TOTP secret, encrypted (AES-256-GCM). Set during set-up; in use once totpEnabledAt is set.
+  totpSecret        String?   @map("totp_secret") @db.VarChar(255)
+  totpEnabledAt     DateTime? @map("totp_enabled_at") @db.Timestamptz(3)
+  /// Time step of the last accepted code: a code is accepted only once (replay protection).
+  totpLastStep      BigInt?   @map("totp_last_step")
+  /// Consecutive failed sign-ins; reaching ADMIN_LOCKOUT_THRESHOLD locks the account.
+  failedLoginCount  Int       @default(0) @map("failed_login_count")
+  lockedUntil       DateTime? @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt       DateTime? @map("last_login_at") @db.Timestamptz(3)
+  lastLoginIp       String?   @map("last_login_ip") @db.VarChar(64)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sessions AdminSession[]
+
+  @@map("admin_users")
+}
+
+/// Admin panel session. The cookie holds a random token; only its SHA-256 hash is stored.
+/// A session ends after ADMIN_SESSION_IDLE_MINUTES without use, or ADMIN_SESSION_MAX_HOURS.
+model AdminSession {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  adminId    String    @map("admin_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") @db.Char(64)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(3)
+  ipAddress  String?   @map("ip_address") @db.VarChar(64)
+  userAgent  String?   @map("user_agent") @db.VarChar(512)
+
+  admin AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@map("admin_sessions")
+}
+
+/// One page opened in the web app (product analytics for administrators). Holds the page's
+/// route (IDs replaced by ":id", no query string), never IP addresses or typed text.
+/// Rows older than PAGE_VIEW_RETENTION_DAYS are deleted.
+model PageView {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  /// Signed-in user, if any.
+  userId     String?  @map("user_id") @db.Uuid
+  /// Random ID kept by the browser: counts unique visitors, including signed-out ones.
+  visitorId  String   @map("visitor_id") @db.Uuid
+  /// Route, e.g. "/tasks/:id".
+  path       String   @db.VarChar(200)
+  /// desktop | mobile | tablet
+  deviceType String   @map("device_type") @db.VarChar(16)
+  browser    String   @db.VarChar(32)
+  os         String   @db.VarChar(32)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([path, createdAt])
+  @@map("page_views")
 }

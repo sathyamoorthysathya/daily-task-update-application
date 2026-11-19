@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import { configureApp } from './app.setup.js';
 import { ErrorReporter } from './common/monitoring/error-reporter.service.js';
+import { versionedApiPath } from './common/versioning.js';
 import type { Env } from './config/env.schema.js';
 
 /** Must stay below the orchestrator's grace period (docker-compose: stop_grace_period 30s). */
@@ -46,7 +47,7 @@ async function bootstrap(): Promise<void> {
   const apiPrefix = config.get('API_PREFIX', { infer: true });
   await app.listen(port);
 
-  logger.log(`API listening on http://localhost:${port}/${apiPrefix}`);
+  logger.log(`API listening on http://localhost:${port}${versionedApiPath(apiPrefix)}`);
   if (config.get('SWAGGER_ENABLED', { infer: true })) {
     logger.log(`Swagger UI available at http://localhost:${port}/${apiPrefix}/docs`);
   }

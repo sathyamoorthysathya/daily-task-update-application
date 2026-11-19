@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
-  ApiBadRequestResponse,
+  ApiUnprocessableEntityResponse,
   ApiBody,
   ApiConsumes,
   ApiCookieAuth,
@@ -69,7 +69,7 @@ export class ProfileController {
   })
   @ApiZodBody(updateProfileSchema)
   @ApiOkResponse({ type: ProfileDto })
-  @ApiBadRequestResponse({ type: ApiErrorResponseDto, description: 'Validation failed' })
+  @ApiUnprocessableEntityResponse({ type: ApiErrorResponseDto, description: 'Validation failed' })
   update(
     @CurrentUser() user: AuthUser,
     @Body({ schema: updateProfileSchema }) body: UpdateProfileInput,
@@ -122,7 +122,10 @@ export class ProfileController {
     },
   })
   @ApiOkResponse({ type: ProfileDto })
-  @ApiBadRequestResponse({ type: ApiErrorResponseDto, description: 'Not a supported image' })
+  @ApiUnprocessableEntityResponse({
+    type: ApiErrorResponseDto,
+    description: 'Not a supported image',
+  })
   @ApiPayloadTooLargeResponse({ type: ApiErrorResponseDto, description: 'Larger than 2 MB' })
   uploadAvatar(
     @CurrentUser() user: AuthUser,

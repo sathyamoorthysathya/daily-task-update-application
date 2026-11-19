@@ -3,12 +3,13 @@ import { Link, Navigate, useLocation } from 'react-router';
 import { FormAlert } from '../../../components/form/FormAlert';
 import { WorkbookCard } from '../components/WorkbookCard';
 import { useWorkbookList } from '../use-workbook-list';
+import { WorkbookListSkeleton } from '../../../components/Skeletons';
 
 /** How often the list refreshes while an Excel file is being updated in the background. */
 export const SYNC_REFRESH_MS = 3000;
 
 export function WorkbooksPage() {
-  const { state, reload, replace } = useWorkbookList();
+  const { state, reload, replace, update } = useWorkbookList();
   const created = (useLocation().state as { createdWorkbook?: string } | null)?.createdWorkbook;
 
   // Follow background Excel updates until every workbook is synced (or needs a manual resync).
@@ -50,11 +51,7 @@ export function WorkbooksPage() {
 
       {created && <FormAlert variant="success">Workbook “{created}” created.</FormAlert>}
 
-      {state.status === 'loading' && (
-        <p className="muted" role="status">
-          Loading workbooks…
-        </p>
-      )}
+      {state.status === 'loading' && <WorkbookListSkeleton />}
       {state.status === 'error' && (
         <FormAlert variant="error">
           {state.message}{' '}
@@ -70,6 +67,7 @@ export function WorkbooksPage() {
               key={workbook.id}
               workbook={workbook}
               onChanged={(list) => (list ? replace(list) : reload())}
+              onOptimistic={update}
             />
           ))}
         </ul>

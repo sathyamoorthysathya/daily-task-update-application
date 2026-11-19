@@ -19,7 +19,7 @@ describe('apiClient', () => {
     await expect(apiClient.get('/health/live')).resolves.toEqual({ status: 'ok' });
 
     const [url, init] = spy.mock.calls[0] ?? [];
-    expect(url).toBe('/api/health/live');
+    expect(url).toBe('/api/v1/health/live');
     expect(init?.credentials).toBe('include');
     expect(new Headers(init?.headers).has('X-CSRF-Token')).toBe(false);
   });

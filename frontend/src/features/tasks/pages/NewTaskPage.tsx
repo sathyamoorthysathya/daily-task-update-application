@@ -30,9 +30,14 @@ import {
   taskFormSchema,
   todayLocal,
   toCreateTaskInput,
+  toCustomValues,
 } from '../tasks.schemas';
+import { EXTRA_VALUE_MAX } from '../../workbooks/workbooks.schemas';
+import { TaskFormSkeleton } from '../../../components/Skeletons';
 
 type FormFields = {
+  /** null = automatic (shows the workbook's next number); text once the user edits it. */
+  taskNumber: string | null;
   name: string;
   entryDate: string;
   project: string;
@@ -48,6 +53,7 @@ type FormFields = {
 };
 
 const emptyFields = (entryDate = todayLocal()): FormFields => ({
+  taskNumber: null,
   name: '',
   entryDate,
   project: '',
@@ -73,14 +79,19 @@ export function NewTaskPage() {
   const { state, reload: reloadWorkbooks } = useWorkbookList();
   const [chosenWorkbookId, setChosenWorkbookId] = useState<string | null>(null);
   const [values, setValues] = useState<FormFields>(() => emptyFields());
+  /** Values of the selected workbook's extra columns, by column id. */
+  const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [saved, setSaved] = useState<{ message: string; sync: ExcelSync; key: number } | null>(
     null,
   );
   const [nameMatch, setNameMatch] = useState<TaskMatch | null>(null);
-  const [duplicate, setDuplicate] = useState<{ match: TaskMatch; input: ParsedTaskForm } | null>(
-    null,
-  );
+  const [duplicate, setDuplicate] = useState<{
+    match: TaskMatch;
+    input: ParsedTaskForm;
+    /** `{ customValues }` when the workbook has extra columns, else empty. */
+    extra: { customValues?: Record<string, string> };
+  } | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [recent, setRecent] = useState<RecentTaskUpdate[] | null>(null);
@@ -95,6 +106,7 @@ export function NewTaskPage() {
   const preselected = list?.defaultWorkbookId ?? (workbooks.length === 1 ? workbooks[0]!.id : '');
   const workbookId = chosenWorkbookId ?? preselected;
   const selected = workbooks.find((workbook) => workbook.id === workbookId);
+  const customColumns = selected?.customColumns ?? [];
 
   useEffect(() => {
     if (!workbookId) {
@@ -154,6 +166,7 @@ export function NewTaskPage() {
       key: (previous?.key ?? 0) + 1,
     }));
     setValues((current) => emptyFields(current.entryDate));
+    setCustomValues({});
     setNameMatch(null);
     reset();
     setRecentVersion((n) => n + 1);
@@ -164,13 +177,20 @@ export function NewTaskPage() {
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setSaved(null);
-    const parsed = validate(taskFormSchema, { ...values, workbookId });
+    const parsed = validate(taskFormSchema, {
+      ...values,
+      taskNumber: values.taskNumber ?? '',
+      workbookId,
+    });
     if (!parsed) {
       return;
     }
+    // Only workbooks with extra columns send their values.
+    const extra =
+      customColumns.length > 0 ? { customValues: toCustomValues(customValues, customColumns) } : {};
     setSubmitting(true);
     try {
-      const result = await tasksApi.create(toCreateTaskInput(parsed));
+      const result = await tasksApi.create({ ...toCreateTaskInput(parsed), ...extra });
       onSaved(
         `Task #${result.task.taskNumber} “${result.task.name}” was added to ${selected?.name ?? 'the workbook'}.`,
         result,
@@ -182,7 +202,7 @@ export function NewTaskPage() {
         error.code === 'TASK_ALREADY_EXISTS' &&
         isTaskMatch(details)
       ) {
-        setDuplicate({ match: details, input: parsed });
+        setDuplicate({ match: details, input: parsed, extra });
       } else {
         handleError(error);
       }
@@ -195,7 +215,7 @@ export function NewTaskPage() {
     if (!duplicate) {
       return;
     }
-    const { match, input } = duplicate;
+    const { match, input, extra } = duplicate;
     const entry = toCreateTaskInput(input);
     setDialogBusy(true);
     setDialogError(null);
@@ -209,6 +229,7 @@ export function NewTaskPage() {
               startTime: entry.startTime,
               endTime: entry.endTime,
               remarks: entry.remarks,
+              ...extra,
             })
           : await tasksApi.addUpdate(match.task.id, {
               entryDate: entry.entryDate,
@@ -218,6 +239,7 @@ export function NewTaskPage() {
               startTime: entry.startTime,
               endTime: entry.endTime,
               remarks: entry.remarks,
+              ...extra,
             });
       setDuplicate(null);
       onSaved(
@@ -234,7 +256,7 @@ export function NewTaskPage() {
           .lookup(input.workbookId, input.name, input.entryDate)
           .catch(() => null);
         if (refreshed?.match) {
-          setDuplicate({ match: refreshed.match, input });
+          setDuplicate({ match: refreshed.match, input, extra });
         }
       }
     } finally {
@@ -254,11 +276,7 @@ export function NewTaskPage() {
         </p>
       </header>
 
-      {state.status === 'loading' && (
-        <p className="muted" role="status">
-          Loading…
-        </p>
-      )}
+      {state.status === 'loading' && <TaskFormSkeleton />}
       {state.status === 'error' && <FormAlert variant="error">{state.message}</FormAlert>}
 
       {list && (
@@ -292,6 +310,11 @@ export function NewTaskPage() {
                   error={fieldErrors.workbookId}
                   onChange={(id) => {
                     setChosenWorkbookId(id);
+                    // Column ids are per workbook: values never carry over to another one.
+                    setCustomValues({});
+                    // Task numbers are per workbook too: back to automatic numbering.
+                    setValues((current) => ({ ...current, taskNumber: null }));
+                    clearFieldError('taskNumber');
                     setNameMatch(null);
                     clearFieldError('workbookId');
                   }}
@@ -311,9 +334,20 @@ export function NewTaskPage() {
             <TextField
               label="Task Number"
               name="taskNumber"
-              value={selected ? `#${selected.nextTaskNumber}` : '—'}
-              readOnly
-              hint="Assigned automatically when you save."
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={6}
+              placeholder={selected ? String(selected.nextTaskNumber) : ''}
+              value={values.taskNumber ?? (selected ? String(selected.nextTaskNumber) : '')}
+              onChange={update('taskNumber')}
+              hint={
+                values.taskNumber === null
+                  ? 'Assigned automatically. You can type your own number.'
+                  : values.taskNumber.trim() === ''
+                    ? 'Left empty: the next number is used.'
+                    : 'Your own number. It must not be used by another task in this workbook.'
+              }
+              error={fieldErrors.taskNumber}
             />
             <TextField
               label="Task Date"
@@ -461,6 +495,35 @@ export function NewTaskPage() {
               }}
               error={fieldErrors.status}
             />
+
+            {customColumns.length > 0 && (
+              <>
+                <div className="form-section field--wide">
+                  <h2>Extra columns</h2>
+                  <p className="muted">
+                    Columns you added to {selected?.name ?? 'this workbook'}. All optional.
+                  </p>
+                </div>
+                {customColumns.map((column) => {
+                  const field = `customValues.${column.id}`;
+                  return (
+                    <TextField
+                      key={column.id}
+                      label={column.name}
+                      name={field}
+                      maxLength={EXTRA_VALUE_MAX}
+                      value={customValues[column.id] ?? ''}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setCustomValues((current) => ({ ...current, [column.id]: value }));
+                        clearFieldError(field);
+                      }}
+                      error={fieldErrors[field]}
+                    />
+                  );
+                })}
+              </>
+            )}
 
             <div className="form-actions">
               <button type="submit" className="button button--primary" disabled={submitting}>

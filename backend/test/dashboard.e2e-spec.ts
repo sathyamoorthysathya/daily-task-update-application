@@ -32,13 +32,13 @@ describe('Dashboard summary (e2e)', () => {
 
   async function task(client: AuthTestClient, body: Record<string, unknown>) {
     const res = await client
-      .post('/api/tasks', { description: 'Work', status: 'IN_PROGRESS', ...body })
+      .post('/api/v1/tasks', { description: 'Work', status: 'IN_PROGRESS', ...body })
       .expect(201);
     return res.body as { task: { id: string; version: number } };
   }
 
   const summary = async (client: AuthTestClient, query = '?today=2026-11-08') =>
-    (await client.get(`/api/tasks/summary${query}`).expect(200)).body as Summary;
+    (await client.get(`/api/v1/tasks/summary${query}`).expect(200)).body as Summary;
 
   beforeAll(async () => {
     ({ app, cleanup } = await createTestApp());
@@ -70,16 +70,16 @@ describe('Dashboard summary (e2e)', () => {
 
   it('counts tasks by status, daily entries, weekly totals and workbook progress', async () => {
     const client = await signedIn('summary');
-    const main = (await client.post('/api/workbooks', { name: 'Main' }).expect(201)).body as {
+    const main = (await client.post('/api/v1/workbooks', { name: 'Main' }).expect(201)).body as {
       id: string;
     };
-    const side = (await client.post('/api/workbooks', { name: 'Side' }).expect(201)).body as {
+    const side = (await client.post('/api/v1/workbooks', { name: 'Side' }).expect(201)).body as {
       id: string;
     };
 
     const report = await task(client, { name: 'Report', entryDate: '2026-11-08' });
     await client
-      .post(`/api/tasks/${report.task.id}/updates`, {
+      .post(`/api/v1/tasks/${report.task.id}/updates`, {
         entryDate: '2026-11-07',
         description: 'Day before',
         status: 'COMPLETED',
@@ -96,7 +96,7 @@ describe('Dashboard summary (e2e)', () => {
     // Deleted tasks are not counted.
     const gone = await task(client, { name: 'Deleted', entryDate: '2026-11-08' });
     await client.agent
-      .delete(`/api/tasks/${gone.task.id}?version=${gone.task.version}`)
+      .delete(`/api/v1/tasks/${gone.task.id}?version=${gone.task.version}`)
       .set('X-CSRF-Token', client.csrfToken)
       .expect(200);
 
@@ -141,7 +141,7 @@ describe('Dashboard summary (e2e)', () => {
 
   it('only counts the signed-in user’s data', async () => {
     const alice = await signedIn('summary-alice');
-    await alice.post('/api/workbooks', { name: 'Alice' }).expect(201);
+    await alice.post('/api/v1/workbooks', { name: 'Alice' }).expect(201);
     await task(alice, { name: 'Private', entryDate: '2026-11-08' });
     const bob = await signedIn('summary-bob');
 
@@ -154,11 +154,11 @@ describe('Dashboard summary (e2e)', () => {
 
   it('validates the query and requires a session', async () => {
     const client = await signedIn('summary-invalid');
-    await client.get('/api/tasks/summary?today=2026-02-30').expect(400);
-    await client.get('/api/tasks/summary?days=3').expect(400);
-    await client.get('/api/tasks/summary?days=365').expect(400);
+    await client.get('/api/v1/tasks/summary?today=2026-02-30').expect(422);
+    await client.get('/api/v1/tasks/summary?days=3').expect(422);
+    await client.get('/api/v1/tasks/summary?days=365').expect(422);
 
     const anonymous = await AuthTestClient.create(app);
-    await anonymous.get('/api/tasks/summary').expect(401);
+    await anonymous.get('/api/v1/tasks/summary').expect(401);
   });
 });

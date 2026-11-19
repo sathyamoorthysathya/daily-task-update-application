@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, UnprocessableEntityException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../../../config/env.schema.js';
 import { AuditService } from '../../../common/monitoring/audit.service.js';
@@ -10,7 +10,7 @@ import { PasswordService } from '../password/password.service.js';
 import { TokenService } from '../tokens/token.service.js';
 
 const invalidResetToken = () =>
-  new BadRequestException({
+  new UnprocessableEntityException({
     code: AuthErrorCode.ResetTokenInvalid,
     message: 'This password reset link is invalid or has expired. Request a new one.',
   });

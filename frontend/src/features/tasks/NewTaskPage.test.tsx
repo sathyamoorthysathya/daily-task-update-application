@@ -95,11 +95,9 @@ function fill(label: string, value: string) {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 }
 
-/** Picks a time in a 12-hour time field, e.g. fillTime('Start Time', '9', '30', 'AM'). */
-function fillTime(label: string, hour: string, minute: string, period: 'AM' | 'PM') {
-  fill(`${label} hour`, hour);
-  fill(`${label} minute`, minute);
-  fill(`${label} AM or PM`, period);
+/** Picks a time in a time drop-down by its 24-hour value, e.g. fillTime('Start Time', '09:30'). */
+function fillTime(label: string, time: string) {
+  fill(label, time);
 }
 
 async function fillValidTask() {
@@ -130,8 +128,8 @@ describe('NewTaskPage', () => {
       await screen.findByRole('form', { name: 'New task' });
       expect(screen.getByLabelText('Workbook')).toHaveValue('wb-main');
       expect(screen.getByRole('option', { name: /Daily Tasks \(default\)/ })).toBeInTheDocument();
-      expect(screen.getByLabelText('Task Number')).toHaveValue('#4');
-      expect(screen.getByLabelText('Task Number')).toHaveAttribute('readonly');
+      expect(screen.getByLabelText('Task Number')).toHaveValue('4');
+      expect(screen.getByLabelText('Task Number')).not.toHaveAttribute('readonly');
       expect(screen.getByLabelText('Task Date')).toHaveValue(todayLocal());
       expect(screen.getByLabelText('Task Status')).toHaveValue('To Do');
       expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(
@@ -152,7 +150,7 @@ describe('NewTaskPage', () => {
       expect(requests.some((r) => r.method === 'POST')).toBe(false);
 
       fill('Workbook', 'wb-apollo');
-      expect(screen.getByLabelText('Task Number')).toHaveValue('#1');
+      expect(screen.getByLabelText('Task Number')).toHaveValue('1');
     });
 
     it('uses the only workbook without asking', async () => {
@@ -223,6 +221,81 @@ describe('NewTaskPage', () => {
       await waitFor(() => expect(recentCalls).toBeGreaterThanOrEqual(2));
     });
 
+    it('lets the user choose their own task number', async () => {
+      const { requests } = renderForm({
+        'POST /tasks': { status: 201, body: saved({ taskNumber: 25 }) },
+      });
+      await fillValidTask();
+      fill('Task Number', 'abc');
+      submit();
+      expect(await screen.findByText('Enter a whole number, e.g. 12')).toBeInTheDocument();
+      expect(requests.some((r) => r.method === 'POST')).toBe(false);
+
+      fill('Task Number', '25');
+      submit();
+
+      await screen.findByText(/Task #25 “Prepare GST report” was added/);
+      expect(requests.find((r) => r.method === 'POST' && r.path === '/tasks')?.body).toMatchObject({
+        taskNumber: 25,
+      });
+      // The next task is numbered automatically again.
+      expect(screen.getByLabelText('Task Number')).toHaveValue('4');
+    });
+
+    it('shows when the chosen task number is already used', async () => {
+      renderForm({
+        'POST /tasks': apiError(409, 'TASK_NUMBER_TAKEN', 'Task #2 already exists.', {
+          errors: [{ field: 'taskNumber', message: 'Task #2 already exists in this workbook.' }],
+        }),
+      });
+      await fillValidTask();
+      fill('Task Number', '2');
+
+      submit();
+
+      expect(
+        await screen.findByText('Task #2 already exists in this workbook.'),
+      ).toBeInTheDocument();
+    });
+
+    it('shows the workbook’s extra columns and saves their values', async () => {
+      const withColumns = makeWorkbook({
+        ...MAIN,
+        customColumns: [
+          { id: 'c1', name: 'Client' },
+          { id: 'c2', name: 'Ticket ID' },
+        ],
+      });
+      const { requests } = renderForm({
+        'GET /workbooks': { body: listOf(withColumns, APOLLO) },
+        'POST /tasks': { status: 201, body: saved() },
+      });
+      await fillValidTask();
+      fill('Task Date', '2026-11-06');
+      fill('Client', '  Acme Ltd ');
+
+      submit();
+
+      await screen.findByText(/was added to Daily Tasks/);
+      expect(requests.find((r) => r.method === 'POST' && r.path === '/tasks')?.body).toMatchObject({
+        customValues: { c1: 'Acme Ltd' },
+      });
+      expect(screen.getByLabelText('Client')).toHaveValue('');
+    });
+
+    it('has no extra fields for workbooks without extra columns', async () => {
+      const { requests } = renderForm({ 'POST /tasks': { status: 201, body: saved() } });
+      await fillValidTask();
+      expect(screen.queryByRole('heading', { name: 'Extra columns' })).not.toBeInTheDocument();
+
+      submit();
+
+      await screen.findByText(/was added to Daily Tasks/);
+      expect(
+        requests.find((r) => r.method === 'POST' && r.path === '/tasks')?.body,
+      ).not.toHaveProperty('customValues');
+    });
+
     it('saves who assigned the task, its priority, project, due date, hours and remarks', async () => {
       const { requests } = renderForm({ 'POST /tasks': { status: 201, body: saved() } });
       await fillValidTask();
@@ -230,8 +303,8 @@ describe('NewTaskPage', () => {
       fill('Assigned By', 'Priya (Team Lead)');
       fill('Priority', 'High');
       fill('Due Date', '2026-11-20');
-      fillTime('Start Time', '9', '30', 'AM');
-      fillTime('End Time', '1', '15', 'PM');
+      fillTime('Start Time', '09:30');
+      fillTime('End Time', '13:15');
       fill('Remarks / Blockers', 'Waiting for invoices');
       expect(screen.getByText('Hours worked: 3 h 45 min')).toBeInTheDocument();
 
@@ -250,32 +323,42 @@ describe('NewTaskPage', () => {
       // The form is cleared for the next task.
       expect(screen.getByLabelText('Assigned By')).toHaveValue('');
       expect(screen.getByLabelText('Priority')).toHaveValue('');
-      expect(screen.getByLabelText('Start Time hour')).toHaveValue('');
+      expect(screen.getByLabelText('Start Time')).toHaveValue('');
     });
 
-    it('uses the 12-hour clock for times and can clear a time', async () => {
+    it('offers 12-hour times every 15 minutes, grouped by part of the day, and can clear a time', async () => {
       renderForm();
       await fillValidTask();
 
-      // Picking only the hour is enough: it starts as that hour, 00 minutes, AM.
-      fill('End Time hour', '12');
-      expect(screen.getByLabelText('End Time minute')).toHaveValue('00');
-      expect(screen.getByLabelText('End Time AM or PM')).toHaveValue('AM');
-      fill('End Time AM or PM', 'PM');
-      fillTime('Start Time', '11', '45', 'AM');
+      const end = screen.getByLabelText('End Time');
+      const groups = within(end).getAllByRole('group');
+      expect(groups.map((group) => group.getAttribute('label'))).toEqual([
+        'Morning',
+        'Afternoon',
+        'Evening',
+        'Night',
+      ]);
+      // The list starts at working hours.
+      expect(within(groups[0]!).getAllByRole('option')[0]).toHaveTextContent('6:00 AM');
+      expect(within(end).getAllByRole('option')).toHaveLength(1 + 96);
+      expect(within(end).getByRole('option', { name: '12:00 PM' })).toHaveValue('12:00');
+
+      fillTime('End Time', '12:00');
+      fillTime('Start Time', '11:45');
       // 11:45 AM to 12:00 PM (noon).
       expect(screen.getByText('Hours worked: 15 min')).toBeInTheDocument();
 
-      fill('End Time hour', '');
-      expect(screen.getByLabelText('End Time AM or PM')).toHaveValue('');
+      fill('End Time', '');
+      expect(end).toHaveValue('');
+      expect(within(end).getByRole('option', { name: 'Not set' })).toBeInTheDocument();
       expect(screen.queryByText(/Hours worked:/)).not.toBeInTheDocument();
     });
 
     it('rejects an end time that is not after the start time', async () => {
       const { requests } = renderForm();
       await fillValidTask();
-      fillTime('Start Time', '2', '00', 'PM');
-      fillTime('End Time', '9', '00', 'AM');
+      fillTime('Start Time', '14:00');
+      fillTime('End Time', '09:00');
 
       submit();
 

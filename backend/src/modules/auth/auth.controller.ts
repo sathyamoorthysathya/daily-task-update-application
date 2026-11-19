@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiAcceptedResponse,
-  ApiBadRequestResponse,
+  ApiUnprocessableEntityResponse,
   ApiConflictResponse,
   ApiCookieAuth,
   ApiCreatedResponse,
@@ -124,7 +124,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Create an account with email and password (signs the user in)' })
   @ApiZodBody(registerSchema)
   @ApiCreatedResponse({ type: AuthResponseDto })
-  @ApiBadRequestResponse({ type: ApiErrorResponseDto, description: 'Validation failed' })
+  @ApiUnprocessableEntityResponse({ type: ApiErrorResponseDto, description: 'Validation failed' })
   @ApiConflictResponse({ type: ApiErrorResponseDto, description: 'Email already registered' })
   async register(
     @Body({ schema: registerSchema }) body: RegisterInput,
@@ -269,7 +269,7 @@ export class AuthController {
   })
   @ApiZodBody(changePasswordSchema)
   @ApiNoContentResponse()
-  @ApiBadRequestResponse({
+  @ApiUnprocessableEntityResponse({
     type: ApiErrorResponseDto,
     description: 'Validation failed, wrong current password, or the account has no password',
   })
@@ -311,7 +311,10 @@ export class AuthController {
   })
   @ApiZodBody(resetPasswordSchema)
   @ApiNoContentResponse()
-  @ApiBadRequestResponse({ type: ApiErrorResponseDto, description: 'Invalid/expired token' })
+  @ApiUnprocessableEntityResponse({
+    type: ApiErrorResponseDto,
+    description: 'Invalid/expired token',
+  })
   async resetPassword(
     @Body({ schema: resetPasswordSchema }) body: ResetPasswordInput,
     @Res({ passthrough: true }) res: Response,

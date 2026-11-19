@@ -26,6 +26,7 @@ import {
 } from './sync/excel-sync-queue.service.js';
 import { ExcelSyncWorker } from './sync/excel-sync.worker.js';
 import { WorkbookTemplateService } from './workbook-template.service.js';
+import { parseCustomColumns, toCustomColumns } from './custom-columns.js';
 import { WorkbookErrorCode } from './workbook.constants.js';
 import {
   type CreateWorkbookInput,
@@ -63,6 +64,7 @@ function toDto(
     taskCount: workbook.taskCount,
     nextTaskNumber: workbook.lastTaskNumber + 1,
     sizeBytes: workbook.sizeBytes,
+    customColumns: parseCustomColumns(workbook.customColumns),
     syncStatus: deriveSyncState(counts, workbook),
     syncError: counts.dead + counts.failed > 0 ? workbook.syncError : null,
     lastSyncedAt: workbook.lastSyncedAt?.toISOString() ?? null,
@@ -114,13 +116,14 @@ export class WorkbooksService {
   }
 
   async get(userId: string, workbookId: string): Promise<WorkbookDto> {
-    const workbook = await this.findOwned(this.prisma, userId, workbookId);
-    const counts = await this.syncQueue.countsFor([workbook.id]);
-    return toDto(
-      workbook,
-      await this.defaultIdOf(this.prisma, userId),
-      this.syncQueue.countsOrEmpty(counts, workbook.id),
-    );
+    // Independent queries, run together (one database round trip instead of three). The
+    // ownership check still decides: another user's workbook fails with 404.
+    const [workbook, counts, defaultId] = await Promise.all([
+      this.findOwned(this.prisma, userId, workbookId),
+      this.syncQueue.countsFor([workbookId]),
+      this.defaultIdOf(this.prisma, userId),
+    ]);
+    return toDto(workbook, defaultId, this.syncQueue.countsOrEmpty(counts, workbook.id));
   }
 
   /** Creates the .xlsx file, then its metadata, as one unit: a failure leaves neither behind. */
@@ -141,14 +144,15 @@ export class WorkbooksService {
 
         const id = randomUUID();
         const storageKey = workbookStorageKey(userId, id);
+        const customColumns = toCustomColumns(input.customColumns ?? []);
         const file = await this.storage.write(
           storageKey,
-          await this.template.createDailyTasksWorkbook(input.name),
+          await this.template.createDailyTasksWorkbook(input.name, [], customColumns),
         );
         writtenKey = storageKey;
 
         const workbook = await tx.workbook.create({
-          data: { id, userId, name: input.name, nameKey, storageKey, ...file },
+          data: { id, userId, name: input.name, nameKey, storageKey, customColumns, ...file },
         });
         let defaultId = await this.defaultIdOf(tx, userId);
         if (input.makeDefault || defaultId === null) {
@@ -162,7 +166,7 @@ export class WorkbooksService {
         userId,
         resourceType: 'workbook',
         resourceId: created.id,
-        details: { name: created.name },
+        details: { name: created.name, customColumns: created.customColumns.length },
       });
       return created;
     } catch (error) {

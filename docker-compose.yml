@@ -64,6 +64,9 @@ services:
       # One proxy in front of the API: the web container (nginx).
       TRUST_PROXY: '1'
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      # Optional first administrator (see .env.example).
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       WORKBOOK_STORAGE_DIR: /data/workbooks
       LOG_FORMAT: text
     volumes:

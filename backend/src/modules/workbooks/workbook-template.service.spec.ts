@@ -172,4 +172,42 @@ describe('WorkbookTemplateService', () => {
       formulae: ['"To Do,In Progress,Pending,Completed,On Hold"'],
     });
   });
+
+  it('adds the user’s extra columns after the built-in ones, with their values', async () => {
+    const columns = [
+      { id: 'c1', name: 'Client' },
+      { id: 'c2', name: 'Ticket ID' },
+    ];
+    const base = {
+      taskId: 'task-1',
+      taskNumber: 1,
+      date: new Date('2026-11-06T00:00:00.000Z'),
+      taskName: 'Prepare report',
+      description: 'Draft',
+      reference: null,
+      status: 'TO_DO' as const,
+    };
+    const buffer = await service.createDailyTasksWorkbook(
+      'x',
+      [
+        { ...base, taskUpdateId: 'update-1', customValues: { c1: 'Acme', c2: '=1+1' } },
+        { ...base, taskUpdateId: 'update-2', customValues: { c2: 'JIRA-7', other: 'ignored' } },
+      ],
+      columns,
+    );
+    const sheet = (await load(buffer)).getWorksheet('Daily Tasks')!;
+
+    const header = sheet.getRow(1);
+    expect(header.getCell(17).value).toBe('Client');
+    expect(header.getCell(18).value).toBe('Ticket ID');
+    expect(header.getCell(19).value).toBeNull();
+    expect(header.getCell(17).fill).toMatchObject({ fgColor: { argb: 'FF1F3A93' } });
+
+    expect(sheet.getRow(2).getCell(17).value).toBe('Acme');
+    expect(sheet.getRow(2).getCell(18).value).toBe('=1+1');
+    expect(sheet.getRow(2).getCell(18).formula).toBeUndefined();
+    expect(sheet.getRow(3).getCell(17).text).toBe('');
+    expect(sheet.getRow(3).getCell(18).value).toBe('JIRA-7');
+    expect(sheet.autoFilter).toBe('A1:R3');
+  });
 });

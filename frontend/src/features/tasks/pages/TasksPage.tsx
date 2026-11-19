@@ -9,6 +9,7 @@ import { TASK_STATUSES } from '../task-status';
 import type { TaskListQuery, TaskPage, TaskSort, TaskStatus } from '../task.types';
 import { tasksApi } from '../tasks.api';
 import { formatTaskDate } from '../tasks.schemas';
+import { TaskListSkeleton } from '../../../components/Skeletons';
 
 const PAGE_SIZES = [10, 20, 50];
 const SORTS: { value: TaskSort; label: string }[] = [
@@ -342,9 +343,7 @@ export function TasksPage() {
             </button>
           </FormAlert>
         ) : !data ? (
-          <p className="muted" role="status">
-            Loading tasks…
-          </p>
+          <TaskListSkeleton />
         ) : data.total === 0 ? (
           <div className="empty-state" role="status">
             {filtersActive ? (

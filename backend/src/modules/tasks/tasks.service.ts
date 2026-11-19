@@ -1,8 +1,8 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env.schema.js';
@@ -20,6 +20,13 @@ import { buildReportPdf } from './report-pdf.js';
 import { buildReportWorkbook, reportFileName, reportPeriodLabel } from './report-workbook.js';
 import { ExcelSyncQueue } from '../workbooks/sync/excel-sync-queue.service.js';
 import { ExcelSyncWorker } from '../workbooks/sync/excel-sync.worker.js';
+import {
+  cleanCustomValues,
+  type CustomColumn,
+  type CustomValues,
+  parseCustomColumns,
+  parseCustomValues,
+} from '../workbooks/custom-columns.js';
 import type {
   DeleteTaskResultDto,
   ExcelSyncDto,
@@ -64,7 +71,30 @@ interface Saved {
 interface WorkbookRef {
   id: string;
   name: string;
+  customColumns: CustomColumn[];
 }
+
+const workbookRefSelect = { id: true, name: true, customColumns: true } as const;
+
+const toWorkbookRef = (workbook: {
+  id: string;
+  name: string;
+  customColumns: unknown;
+}): WorkbookRef => ({
+  id: workbook.id,
+  name: workbook.name,
+  customColumns: parseCustomColumns(workbook.customColumns),
+});
+
+/** Same columns, same values (both cleaned by `cleanCustomValues`). */
+function sameCustomValues(a: CustomValues, b: CustomValues): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...keys].every((key) => a[key] === b[key]);
+}
+
+/** History snapshots only mention extra-column values when there are some. */
+const customValuesSnapshot = (customValues: CustomValues) =>
+  Object.keys(customValues).length > 0 ? { customValues } : {};
 
 export const TaskErrorCode = {
   NotFound: 'TASK_NOT_FOUND',
@@ -74,6 +104,7 @@ export const TaskErrorCode = {
   VersionConflict: 'TASK_UPDATE_VERSION_CONFLICT',
   TaskVersionConflict: 'TASK_VERSION_CONFLICT',
   NameTaken: 'TASK_NAME_TAKEN',
+  NumberTaken: 'TASK_NUMBER_TAKEN',
   WorkbookNotFound: 'WORKBOOK_NOT_FOUND',
   WorkbookFull: 'WORKBOOK_FULL',
   WorkbookRequired: 'WORKBOOK_SELECTION_REQUIRED',
@@ -120,6 +151,7 @@ function toUpdateDto(update: TaskUpdate): TaskUpdateDto {
     endTime: update.endTime,
     minutesWorked: minutesBetween(update.startTime, update.endTime),
     remarks: update.remarks,
+    customValues: parseCustomValues(update.customValues),
     version: update.version,
     createdAt: update.createdAt.toISOString(),
     updatedAt: update.updatedAt.toISOString(),
@@ -238,6 +270,7 @@ export class TasksService {
     const workbook = await this.resolveWorkbook(userId, input.workbookId);
     const nameKey = taskNameKey(input.name);
     const entryDate = parseCalendarDate(input.entryDate);
+    const customValues = cleanCustomValues(input.customValues, workbook.customColumns);
 
     let saved: Saved;
     try {
@@ -247,21 +280,30 @@ export class TasksService {
           throw this.duplicateTask(existing);
         }
         // Row lock on the workbook: task numbers are handed out one at a time, never reused.
-        const { lastTaskNumber, dataVersion } = await tx.workbook.update({
+        const locked = await tx.workbook.update({
           where: { id: workbook.id },
-          data: {
-            lastTaskNumber: { increment: 1 },
-            taskCount: { increment: 1 },
-            dataVersion: { increment: 1 },
-          },
+          data: { taskCount: { increment: 1 }, dataVersion: { increment: 1 } },
           select: { lastTaskNumber: true, dataVersion: true },
         });
+        const { dataVersion } = locked;
+        // The user's own number, or the next one. Every used number is <= lastTaskNumber, so
+        // automatic numbers never collide with a number the user chose.
+        const taskNumber = input.taskNumber ?? locked.lastTaskNumber + 1;
+        if (input.taskNumber !== undefined) {
+          await this.assertTaskNumberFree(tx, workbook.id, input.taskNumber);
+        }
+        if (taskNumber > locked.lastTaskNumber) {
+          await tx.workbook.update({
+            where: { id: workbook.id },
+            data: { lastTaskNumber: taskNumber },
+          });
+        }
         await this.assertCapacity(tx, workbook.id);
         const task = await tx.task.create({
           data: {
             userId,
             workbookId: workbook.id,
-            taskNumber: lastTaskNumber,
+            taskNumber,
             name: input.name,
             nameKey,
             status: input.status,
@@ -283,6 +325,7 @@ export class TasksService {
             startTime: input.startTime,
             endTime: input.endTime,
             remarks: input.remarks,
+            customValues,
           },
         });
         await tx.taskHistory.create({
@@ -306,6 +349,7 @@ export class TasksService {
               startTime: input.startTime,
               endTime: input.endTime,
               remarks: input.remarks,
+              ...customValuesSnapshot(customValues),
             },
           },
         });
@@ -339,6 +383,10 @@ export class TasksService {
   ): Promise<SaveTaskResultDto> {
     const task = await this.findOwnedTask(this.prisma, userId, taskId);
     const entryDate = parseCalendarDate(input.entryDate);
+    const customValues = cleanCustomValues(
+      input.customValues,
+      await this.customColumnsOf(task.workbookId),
+    );
 
     let saved: Saved;
     try {
@@ -357,6 +405,7 @@ export class TasksService {
             startTime: input.startTime,
             endTime: input.endTime,
             remarks: input.remarks,
+            customValues,
           },
         });
         await tx.taskHistory.create({
@@ -373,6 +422,7 @@ export class TasksService {
               startTime: input.startTime,
               endTime: input.endTime,
               remarks: input.remarks,
+              ...customValuesSnapshot(customValues),
             },
           },
         });
@@ -419,7 +469,12 @@ export class TasksService {
     if (existing.version !== input.version) {
       throw this.versionConflict(existing);
     }
-    if (Object.keys(this.diff(existing, input)).length === 0) {
+    // Without `customValues` the stored values are kept as they are.
+    const customValues =
+      input.customValues === undefined
+        ? parseCustomValues(existing.customValues)
+        : cleanCustomValues(input.customValues, await this.customColumnsOf(task.workbookId));
+    if (Object.keys(this.diff(existing, input, customValues)).length === 0) {
       // Nothing changed: no new version, history entry or Excel job.
       return {
         task: toTaskDto(task),
@@ -431,7 +486,7 @@ export class TasksService {
     const saved = await this.prisma.$transaction(async (tx): Promise<Saved> => {
       const dataVersion = await this.lockForChange(tx, task);
       const current = await tx.taskUpdate.findUniqueOrThrow({ where: { id: existing.id } });
-      const changes = this.diff(current, input);
+      const changes = this.diff(current, input, customValues);
       const { count } = await tx.taskUpdate.updateMany({
         where: { id: current.id, version: input.version },
         data: {
@@ -441,6 +496,7 @@ export class TasksService {
           startTime: input.startTime,
           endTime: input.endTime,
           remarks: input.remarks,
+          customValues,
           version: { increment: 1 },
         },
       });
@@ -470,7 +526,7 @@ export class TasksService {
     const task = await this.prisma.task.findFirst({
       where: { id: taskId, userId, deletedAt: null },
       include: {
-        workbook: { select: { id: true, name: true } },
+        workbook: { select: workbookRefSelect },
         updates: { orderBy: latestFirst },
         history: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
       },
@@ -480,7 +536,7 @@ export class TasksService {
     }
     return {
       ...toTaskDto(task),
-      workbook: task.workbook,
+      workbook: toWorkbookRef(task.workbook),
       updates: task.updates.map(toUpdateDto),
       history: task.history.map(toHistoryDto),
     };
@@ -492,9 +548,6 @@ export class TasksService {
    * date range) instead of loading all tasks.
    */
   async list(userId: string, query: ListTasksQuery): Promise<TaskPageDto> {
-    if (query.workbookId) {
-      await this.resolveWorkbook(userId, query.workbookId);
-    }
     const where: Prisma.TaskWhereInput = { userId, deletedAt: null };
     if (query.workbookId) {
       where.workbookId = query.workbookId;
@@ -516,22 +569,25 @@ export class TasksService {
       };
     }
 
-    const [total, tasks] = await this.prisma.$transaction([
-      this.prisma.task.count({ where }),
-      this.prisma.task.findMany({
-        where,
-        orderBy: TASK_ORDER[query.sort],
-        skip: (query.page - 1) * query.pageSize,
-        take: query.pageSize,
-        include: {
-          workbook: { select: { id: true, name: true } },
-          updates: {
-            orderBy: latestFirst,
-            take: 1,
-            select: { description: true, reference: true, updatedAt: true },
+    const [, [total, tasks]] = await Promise.all([
+      this.checkWorkbook(userId, query.workbookId),
+      this.prisma.$transaction([
+        this.prisma.task.count({ where }),
+        this.prisma.task.findMany({
+          where,
+          orderBy: TASK_ORDER[query.sort],
+          skip: (query.page - 1) * query.pageSize,
+          take: query.pageSize,
+          include: {
+            workbook: { select: { id: true, name: true } },
+            updates: {
+              orderBy: latestFirst,
+              take: 1,
+              select: { description: true, reference: true, updatedAt: true },
+            },
           },
-        },
-      }),
+        }),
+      ]),
     ]);
 
     return {
@@ -788,26 +844,26 @@ export class TasksService {
    * totals of the period. Without bounds it covers all of the user's work.
    */
   async report(userId: string, query: TaskReportQuery): Promise<TaskReportDto> {
-    if (query.workbookId) {
-      await this.resolveWorkbook(userId, query.workbookId);
-    }
-    const found = await this.prisma.taskUpdate.findMany({
-      where: {
-        userId,
-        task: { deletedAt: null, ...(query.workbookId ? { workbookId: query.workbookId } : {}) },
-        ...(query.from || query.to
-          ? {
-              entryDate: {
-                ...(query.from ? { gte: parseCalendarDate(query.from) } : {}),
-                ...(query.to ? { lte: parseCalendarDate(query.to) } : {}),
-              },
-            }
-          : {}),
-      },
-      include: { task: { include: { workbook: { select: { name: true } } } } },
-      orderBy: [{ entryDate: 'asc' }, { task: { taskNumber: 'asc' } }, { createdAt: 'asc' }],
-      take: REPORT_ENTRY_LIMIT + 1,
-    });
+    const [, found] = await Promise.all([
+      this.checkWorkbook(userId, query.workbookId),
+      this.prisma.taskUpdate.findMany({
+        where: {
+          userId,
+          task: { deletedAt: null, ...(query.workbookId ? { workbookId: query.workbookId } : {}) },
+          ...(query.from || query.to
+            ? {
+                entryDate: {
+                  ...(query.from ? { gte: parseCalendarDate(query.from) } : {}),
+                  ...(query.to ? { lte: parseCalendarDate(query.to) } : {}),
+                },
+              }
+            : {}),
+        },
+        include: { task: { include: { workbook: { select: { name: true } } } } },
+        orderBy: [{ entryDate: 'asc' }, { task: { taskNumber: 'asc' } }, { createdAt: 'asc' }],
+        take: REPORT_ENTRY_LIMIT + 1,
+      }),
+    ]);
     const updates = found.slice(0, REPORT_ENTRY_LIMIT);
 
     const tasks = new Map<string, Task>();
@@ -870,18 +926,18 @@ export class TasksService {
   }
 
   async listRecent(userId: string, query: ListTaskUpdatesQuery): Promise<RecentTaskUpdatesDto> {
-    if (query.workbookId) {
-      await this.resolveWorkbook(userId, query.workbookId);
-    }
-    const updates = await this.prisma.taskUpdate.findMany({
-      where: {
-        userId,
-        task: { deletedAt: null, ...(query.workbookId ? { workbookId: query.workbookId } : {}) },
-      },
-      include: { task: { select: { workbookId: true, taskNumber: true, name: true } } },
-      orderBy: latestFirst,
-      take: query.limit,
-    });
+    const [, updates] = await Promise.all([
+      this.checkWorkbook(userId, query.workbookId),
+      this.prisma.taskUpdate.findMany({
+        where: {
+          userId,
+          task: { deletedAt: null, ...(query.workbookId ? { workbookId: query.workbookId } : {}) },
+        },
+        include: { task: { select: { workbookId: true, taskNumber: true, name: true } } },
+        orderBy: latestFirst,
+        take: query.limit,
+      }),
+    ]);
     return {
       updates: updates.map((update) => ({
         ...toUpdateDto(update),
@@ -901,7 +957,7 @@ export class TasksService {
     if (workbookId) {
       const workbook = await this.prisma.workbook.findFirst({
         where: { id: workbookId, userId },
-        select: { id: true, name: true },
+        select: workbookRefSelect,
       });
       if (!workbook) {
         throw new NotFoundException({
@@ -909,33 +965,52 @@ export class TasksService {
           message: 'Workbook not found.',
         });
       }
-      return workbook;
+      return toWorkbookRef(workbook);
     }
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: {
-        defaultWorkbook: { select: { id: true, name: true } },
-        workbooks: { select: { id: true, name: true }, take: 2 },
+        defaultWorkbook: { select: workbookRefSelect },
+        workbooks: { select: workbookRefSelect, take: 2 },
       },
     });
     if (user.defaultWorkbook) {
-      return user.defaultWorkbook;
+      return toWorkbookRef(user.defaultWorkbook);
     }
     const [only, another] = user.workbooks;
     if (!only) {
-      throw new BadRequestException({
+      throw new UnprocessableEntityException({
         code: TaskErrorCode.NoWorkbook,
         message: 'Create a workbook before adding tasks.',
       });
     }
     if (another) {
-      throw new BadRequestException({
+      throw new UnprocessableEntityException({
         code: TaskErrorCode.WorkbookRequired,
         message: 'Choose the workbook this task belongs to.',
         errors: [{ field: 'workbookId', message: 'Choose a workbook.' }],
       });
     }
-    return only;
+    return toWorkbookRef(only);
+  }
+
+  /**
+   * 404 unless the workbook (when one is given) is the user's. Run alongside the query it
+   * guards: that query is scoped to the user too, so it never returns another user's data.
+   */
+  private async checkWorkbook(userId: string, workbookId?: string): Promise<void> {
+    if (workbookId) {
+      await this.resolveWorkbook(userId, workbookId);
+    }
+  }
+
+  /** The extra columns of a workbook (fixed when the workbook is created). */
+  private async customColumnsOf(workbookId: string): Promise<CustomColumn[]> {
+    const workbook = await this.prisma.workbook.findUniqueOrThrow({
+      where: { id: workbookId },
+      select: { customColumns: true },
+    });
+    return parseCustomColumns(workbook.customColumns);
   }
 
   private async findMatch(
@@ -1016,6 +1091,25 @@ export class TasksService {
     }
   }
 
+  /**
+   * A chosen task number must not be used by another task of the workbook, including deleted
+   * ones (numbers are never reused). Called while holding the workbook row lock.
+   */
+  private async assertTaskNumberFree(tx: Db, workbookId: string, taskNumber: number) {
+    const taken = await tx.task.findUnique({
+      where: { workbookId_taskNumber: { workbookId, taskNumber } },
+      select: { id: true },
+    });
+    if (taken) {
+      const message = `Task #${taskNumber} already exists in this workbook. Choose another number.`;
+      throw new ConflictException({
+        code: TaskErrorCode.NumberTaken,
+        message,
+        errors: [{ field: 'taskNumber', message }],
+      });
+    }
+  }
+
   /** Queues the Excel job for a change to an existing task, inside the change's transaction. */
   private enqueueFor(
     tx: Db,
@@ -1044,8 +1138,11 @@ export class TasksService {
     });
   }
 
-  private diff(current: TaskUpdate, input: EditTaskUpdateInput) {
-    const changes: Record<string, { from: string | null; to: string | null }> = {};
+  private diff(current: TaskUpdate, input: EditTaskUpdateInput, customValues: CustomValues) {
+    const changes: Record<
+      string,
+      { from: string | null; to: string | null } | { from: CustomValues; to: CustomValues }
+    > = {};
     for (const field of [
       'status',
       'description',
@@ -1057,6 +1154,10 @@ export class TasksService {
       if (current[field] !== input[field]) {
         changes[field] = { from: current[field], to: input[field] };
       }
+    }
+    const previous = parseCustomValues(current.customValues);
+    if (!sameCustomValues(previous, customValues)) {
+      changes.customValues = { from: previous, to: customValues };
     }
     return changes;
   }

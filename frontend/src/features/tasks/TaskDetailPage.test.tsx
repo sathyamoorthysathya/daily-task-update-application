@@ -18,7 +18,7 @@ const TASK: TaskDetail = {
   ...NO_TASK_DETAILS,
   version: 4,
   createdAt: '2026-11-05T09:00:00.000Z',
-  workbook: { id: 'wb-main', name: 'Main' },
+  workbook: { id: 'wb-main', name: 'Main', customColumns: [] },
   updates: [
     {
       id: 'upd-2',
@@ -229,10 +229,8 @@ describe('TaskDetailPage', () => {
     });
     const pick = (label: string, value: string) =>
       fireEvent.change(form.getByLabelText(label), { target: { value } });
-    pick('Start time hour', '10');
-    pick('End time hour', '12');
-    pick('End time minute', '30');
-    pick('End time AM or PM', 'PM');
+    pick('Start time', '10:00');
+    pick('End time', '12:30');
     fireEvent.click(form.getByRole('button', { name: 'Save entry' }));
 
     expect(
