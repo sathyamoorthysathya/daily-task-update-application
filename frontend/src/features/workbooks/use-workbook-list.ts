@@ -26,6 +26,14 @@ export function useWorkbookList() {
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
   const replace = useCallback((data: WorkbookList) => setState({ status: 'ready', data }), []);
+  /** Changes the shown list right away (optimistic update), before the server confirms. */
+  const update = useCallback(
+    (change: (data: WorkbookList) => WorkbookList) =>
+      setState((current) =>
+        current.status === 'ready' ? { status: 'ready', data: change(current.data) } : current,
+      ),
+    [],
+  );
 
-  return { state, reload, replace };
+  return { state, reload, replace, update };
 }

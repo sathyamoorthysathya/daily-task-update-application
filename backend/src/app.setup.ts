@@ -1,4 +1,4 @@
-import type { INestApplication } from '@nestjs/common';
+import { type INestApplication, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
@@ -9,6 +9,7 @@ import {
   requestContext,
 } from './common/monitoring/request-context.middleware.js';
 import { setupSwagger } from './common/swagger/swagger.setup.js';
+import { API_VERSION } from './common/versioning.js';
 import type { Env } from './config/env.schema.js';
 import { CSRF_HEADER } from './modules/auth/auth.constants.js';
 
@@ -40,6 +41,8 @@ export function configureApp(app: INestApplication): void {
   express.useBodyParser('urlencoded', { limit: '20kb', extended: false });
   app.use(cookieParser());
   app.setGlobalPrefix(apiPrefix);
+  // Every route is versioned in its URL: /api/v1/... (health checks also answer unversioned).
+  app.enableVersioning({ type: VersioningType.URI, defaultVersion: API_VERSION });
   app.enableCors({
     origin: config.get('CORS_ORIGINS', { infer: true }),
     // Authentication uses cookies, so cross-origin clients must send credentials.

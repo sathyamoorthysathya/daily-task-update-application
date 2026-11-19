@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 import path from 'node:path';
 import {
+  ADMIN_PASSWORD,
+  ADMIN_USERNAME,
   API_PORT,
   API_URL,
   E2E_DIR,
@@ -80,6 +82,9 @@ export default defineConfig({
             EXCEL_SYNC_POLL_MS: '250',
             EXCEL_SYNC_RETRY_BASE_MS: '1000',
             LOG_FORMAT: 'json',
+            // The admin panel test signs in with this administrator (created at start-up).
+            ADMIN_USERNAME,
+            ADMIN_PASSWORD,
           },
         },
         {
@@ -90,7 +95,7 @@ export default defineConfig({
           timeout: 180_000,
           reuseExistingServer: !CI,
           stdout: 'ignore',
-          env: { API_PROXY_TARGET: API_URL, VITE_API_BASE_URL: '/api' },
+          env: { API_PROXY_TARGET: API_URL, VITE_API_BASE_URL: '/api/v1' },
         },
       ],
 });

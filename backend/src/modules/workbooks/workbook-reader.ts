@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import {
   DAILY_TASK_COLUMNS,
   DAILY_TASKS_SHEET_NAME,
+  LAST_COLUMN,
   WORK_DETAIL_FIRST_COLUMN,
 } from './workbook.constants.js';
 
@@ -24,6 +25,8 @@ export interface WorkbookRow {
   /** Hours as a number; null when no working time was recorded. */
   hoursWorked: number | null;
   remarks: string;
+  /** Extra columns added by the user (after column P), by header name. */
+  extra: Record<string, string>;
 }
 
 const TASK_ID_COLUMN = DAILY_TASK_COLUMNS.length + 1; // G
@@ -37,6 +40,12 @@ export async function readWorkbookRows(file: Buffer): Promise<WorkbookRow[]> {
   if (!sheet) {
     throw new Error(`Worksheet "${DAILY_TASKS_SHEET_NAME}" is missing`);
   }
+  const extraHeaders: { column: number; name: string }[] = [];
+  sheet.getRow(1).eachCell((cell, column) => {
+    if (column > LAST_COLUMN) {
+      extraHeaders.push({ column, name: cell.text });
+    }
+  });
   const rows: WorkbookRow[] = [];
   sheet.eachRow((row, index) => {
     if (index === 1) {
@@ -63,6 +72,9 @@ export async function readWorkbookRows(file: Buffer): Promise<WorkbookRow[]> {
       endTime: detail(5).text,
       hoursWorked: typeof hours === 'number' ? hours : null,
       remarks: detail(7).text,
+      extra: Object.fromEntries(
+        extraHeaders.map(({ column, name }) => [name, row.getCell(column).text]),
+      ),
     });
   });
   return rows;

@@ -1,5 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+export class CustomColumnDto {
+  @ApiProperty({ example: 'c1', description: 'Key of the values stored on each entry' })
+  id!: string;
+
+  @ApiProperty({ example: 'Client' })
+  name!: string;
+}
+
 export class WorkbookDto {
   @ApiProperty({ format: 'uuid' })
   id!: string;
@@ -18,6 +26,12 @@ export class WorkbookDto {
 
   @ApiProperty({ example: 6512, description: 'Size of the .xlsx file in bytes' })
   sizeBytes!: number;
+
+  @ApiProperty({
+    type: [CustomColumnDto],
+    description: 'Extra columns added after the built-in ones, in sheet order',
+  })
+  customColumns!: CustomColumnDto[];
 
   @ApiProperty({
     enum: ['synced', 'pending', 'retrying', 'failed'],

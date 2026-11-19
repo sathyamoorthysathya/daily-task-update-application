@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { TASK_STATUS_VALUES } from './task-status.js';
+import { customValuesSchema } from '../workbooks/custom-columns.js';
 
 /** C0 control characters and DEL (browsers drop some of them inside URLs). */
 // eslint-disable-next-line no-control-regex
@@ -9,6 +10,8 @@ const DAY_MS = 86_400_000;
 const EARLIEST_DATE = '2000-01-01';
 /** How far ahead a task date may be (planned work). */
 const MAX_DAYS_AHEAD = 366;
+/** Largest task number a user may choose. */
+export const MAX_TASK_NUMBER = 999_999;
 
 /** Collapses whitespace and normalises Unicode so equal-looking names compare equal. */
 export function normaliseTaskName(name: string): string {
@@ -145,6 +148,11 @@ const workFields = {
   startTime: timeSchema('Start time'),
   endTime: timeSchema('End time'),
   remarks: remarksSchema,
+  /**
+   * Values of the workbook's extra columns, by column id ({ "c1": "Acme Ltd" }). Ids that are
+   * not columns of the workbook are ignored. When editing, omit it to keep the stored values.
+   */
+  customValues: customValuesSchema.optional(),
 };
 
 const entryFields = {
@@ -179,6 +187,13 @@ export const createTaskSchema = z
   .strictObject({
     /** Omit to use the default workbook. */
     workbookId: z.uuid('Invalid workbook ID').optional(),
+    /** Omit to number the task automatically (the workbook's next number). */
+    taskNumber: z
+      .number({ error: 'Task number must be a whole number' })
+      .int('Task number must be a whole number')
+      .min(1, 'Task numbers start at 1')
+      .max(MAX_TASK_NUMBER, `Task number must be at most ${MAX_TASK_NUMBER}`)
+      .optional(),
     name: taskNameSchema,
     ...taskDetailFields,
     ...entryFields,

@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
+import { versionedApiPath } from '../versioning.js';
 import { requestStore } from './request-store.js';
 
 export const REQUEST_ID_HEADER = 'X-Request-Id';
@@ -22,7 +23,10 @@ declare module 'express' {
  */
 export function requestContext(options: { accessLog: boolean; apiPrefix: string }) {
   const logger = new Logger('HTTP');
-  const quietPrefix = `/${options.apiPrefix}/health`;
+  const quietPrefixes = [
+    `/${options.apiPrefix}/health`,
+    `${versionedApiPath(options.apiPrefix)}/health`,
+  ];
 
   return (req: Request, res: Response, next: NextFunction): void => {
     const incoming = req.get(REQUEST_ID_HEADER);
@@ -30,7 +34,7 @@ export function requestContext(options: { accessLog: boolean; apiPrefix: string 
     req.requestId = requestId;
     res.setHeader(REQUEST_ID_HEADER, requestId);
 
-    if (options.accessLog && !req.path.startsWith(quietPrefix)) {
+    if (options.accessLog && !quietPrefixes.some((prefix) => req.path.startsWith(prefix))) {
       const started = process.hrtime.bigint();
       res.on('finish', () => {
         const entry = {

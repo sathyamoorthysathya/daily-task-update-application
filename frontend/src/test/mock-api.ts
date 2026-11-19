@@ -16,7 +16,9 @@ export interface MockResponse {
   raw?: Response;
 }
 
-export type MockHandler = MockResponse | ((request: MockRequest) => MockResponse);
+/** A response, or a function answering each request (asynchronously, to hold an answer back). */
+export type MockHandler =
+  MockResponse | ((request: MockRequest) => MockResponse | Promise<MockResponse>);
 
 const TEST_CSRF_TOKEN = 'test-csrf-token';
 
@@ -55,7 +57,7 @@ export function mockApi(routes: Record<string, MockHandler>) {
       'http://localhost',
     );
     const method = (init?.method ?? 'GET').toUpperCase();
-    const path = url.pathname.replace(/^\/api/, '');
+    const path = url.pathname.replace(/^\/api\/v1/, '');
     const request: MockRequest = {
       method,
       path,
@@ -68,7 +70,7 @@ export function mockApi(routes: Record<string, MockHandler>) {
     let response: MockResponse;
     const handler = routes[`${method} ${path}`];
     if (handler) {
-      response = typeof handler === 'function' ? handler(request) : handler;
+      response = typeof handler === 'function' ? await handler(request) : handler;
     } else if (method === 'GET' && path === '/auth/csrf') {
       document.cookie = `csrf_token=${TEST_CSRF_TOKEN}; path=/`;
       response = { body: { csrfToken: TEST_CSRF_TOKEN } };

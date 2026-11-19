@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { customColumnNamesSchema } from './custom-columns.js';
 
 /** Characters Excel/Windows do not allow in file names, plus control characters. */
 // eslint-disable-next-line no-control-regex -- matching control characters is the point
@@ -22,6 +23,8 @@ export const createWorkbookSchema = z.strictObject({
   name: workbookNameSchema,
   /** Make the new workbook the default (the first workbook always becomes the default). */
   makeDefault: z.boolean().optional(),
+  /** Names of extra columns added after the built-in ones (optional). */
+  customColumns: customColumnNamesSchema.optional(),
 });
 
 export const renameWorkbookSchema = z.strictObject({

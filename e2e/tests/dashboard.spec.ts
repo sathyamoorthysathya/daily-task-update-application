@@ -17,7 +17,7 @@ test('the dashboard shows overall figures, activity and recent task updates', as
     entryDate: localDate(1),
     status: 'IN_PROGRESS',
   });
-  await api(page).post(`/api/tasks/${first.task.id}/updates`, {
+  await api(page).post(`/api/v1/tasks/${first.task.id}/updates`, {
     entryDate: localDate(0),
     description: 'Filed the return',
     status: 'COMPLETED',

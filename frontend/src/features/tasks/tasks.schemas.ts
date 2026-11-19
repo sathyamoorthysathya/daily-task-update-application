@@ -8,6 +8,9 @@ const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/;
 
 const STATUSES = ['TO_DO', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'ON_HOLD'] as const;
 
+/** Largest task number a user may choose (same limit as the API). */
+export const MAX_TASK_NUMBER = 999_999;
+
 /** Today's date in the user's time zone, as YYYY-MM-DD. */
 export function todayLocal(now = new Date()): string {
   const pad = (value: number) => String(value).padStart(2, '0');
@@ -95,6 +98,16 @@ export function checkWorkingHours(
 export const taskFormSchema = z
   .object({
     workbookId: z.string().min(1, 'Choose a workbook'),
+    /** Empty = numbered automatically. */
+    taskNumber: z
+      .string()
+      .trim()
+      .regex(/^$|^\d+$/, 'Enter a whole number, e.g. 12')
+      .refine((value) => value === '' || Number(value) >= 1, 'Task numbers start at 1')
+      .refine(
+        (value) => value === '' || Number(value) <= MAX_TASK_NUMBER,
+        `Task number must be at most ${MAX_TASK_NUMBER}`,
+      ),
     name: taskNameSchema,
     entryDate: z
       .string()
@@ -143,6 +156,8 @@ export function toWorkDetails(values: {
 export function toCreateTaskInput(values: ParsedTaskForm): CreateTaskInput {
   return {
     workbookId: values.workbookId,
+    // Only a number the user chose is sent; otherwise the API numbers the task.
+    ...(values.taskNumber === '' ? {} : { taskNumber: Number(values.taskNumber) }),
     name: values.name,
     ...toTaskDetails(values),
     entryDate: values.entryDate,
@@ -151,6 +166,24 @@ export function toCreateTaskInput(values: ParsedTaskForm): CreateTaskInput {
     status: values.status,
     ...toWorkDetails(values),
   };
+}
+
+/**
+ * Values typed into a workbook's extra columns, as the API expects them: trimmed, and only
+ * the columns of that workbook (an empty value means "not set").
+ */
+export function toCustomValues(
+  values: Record<string, string>,
+  columns: readonly { id: string }[],
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const column of columns) {
+    const value = values[column.id]?.trim();
+    if (value) {
+      result[column.id] = value;
+    }
+  }
+  return result;
 }
 
 /** Minutes between two "HH:MM" times; null unless both are set and in order. */

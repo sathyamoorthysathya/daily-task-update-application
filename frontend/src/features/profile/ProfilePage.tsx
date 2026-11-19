@@ -9,6 +9,7 @@ import { ProfileDetailsSection } from './components/ProfileDetailsSection';
 import { ProfileSummaryCard } from './components/ProfileSummaryCard';
 import { profileApi } from './profile.api';
 import type { Profile } from './profile.types';
+import { ProfileSkeleton } from '../../components/Skeletons';
 
 type LoadState =
   | { status: 'loading' }
@@ -45,11 +46,7 @@ export function ProfilePage() {
         <p className="muted">Manage your personal details, password and connected accounts.</p>
       </header>
 
-      {state.status === 'loading' && (
-        <p className="muted" role="status">
-          Loading your profile…
-        </p>
-      )}
+      {state.status === 'loading' && <ProfileSkeleton />}
 
       {state.status === 'error' && (
         <FormAlert variant="error">

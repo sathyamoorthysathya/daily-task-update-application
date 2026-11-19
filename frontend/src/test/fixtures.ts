@@ -9,15 +9,16 @@ export const NO_TASK_DETAILS: TaskDetails = {
   dueDate: null,
 };
 
-/** A daily entry without working hours or remarks. */
+/** A daily entry without working hours, remarks or extra-column values. */
 export const NO_WORK_DETAILS: Pick<
   TaskUpdate,
-  'startTime' | 'endTime' | 'minutesWorked' | 'remarks'
+  'startTime' | 'endTime' | 'minutesWorked' | 'remarks' | 'customValues'
 > = {
   startTime: null,
   endTime: null,
   minutesWorked: null,
   remarks: null,
+  customValues: {},
 };
 
 export function makeWorkbook(overrides: Partial<Workbook>): Workbook {
@@ -28,6 +29,7 @@ export function makeWorkbook(overrides: Partial<Workbook>): Workbook {
     taskCount: 0,
     nextTaskNumber: 1,
     sizeBytes: 6500,
+    customColumns: [],
     syncStatus: 'synced',
     syncError: null,
     lastSyncedAt: null,

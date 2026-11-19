@@ -87,8 +87,15 @@ describe('createTaskSchema', () => {
 
   it('requires a description and rejects unknown fields', () => {
     expect(createTaskSchema.safeParse({ ...valid, description: ' ' }).success).toBe(false);
-    expect(createTaskSchema.safeParse({ ...valid, taskNumber: 99 }).success).toBe(false);
     expect(createTaskSchema.safeParse({ ...valid, userId: 'x' }).success).toBe(false);
+  });
+
+  it('accepts an optional task number chosen by the user', () => {
+    expect(createTaskSchema.parse({ ...valid, taskNumber: 99 }).taskNumber).toBe(99);
+    expect(createTaskSchema.parse(valid).taskNumber).toBeUndefined();
+    for (const taskNumber of [0, -1, 1.5, '7', 1_000_000]) {
+      expect(createTaskSchema.safeParse({ ...valid, taskNumber }).success).toBe(false);
+    }
   });
 });
 

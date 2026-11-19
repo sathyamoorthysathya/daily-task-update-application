@@ -22,12 +22,12 @@ test('users never see or change each other’s tasks and workbooks', async ({ br
 
   // Through the API with Bob's session: reads and writes are refused as "not found".
   const bobApi = api(bob);
-  expect((await bobApi.get(`/api/tasks/${aliceTask.task.id}`)).status()).toBe(404);
-  expect((await bobApi.get(`/api/workbooks/${aliceWorkbook}/download`)).status()).toBe(404);
-  expect((await bobApi.get(`/api/workbooks/${aliceWorkbook}/sync-status`)).status()).toBe(404);
+  expect((await bobApi.get(`/api/v1/tasks/${aliceTask.task.id}`)).status()).toBe(404);
+  expect((await bobApi.get(`/api/v1/workbooks/${aliceWorkbook}/download`)).status()).toBe(404);
+  expect((await bobApi.get(`/api/v1/workbooks/${aliceWorkbook}/sync-status`)).status()).toBe(404);
   expect(
     (
-      await bobApi.patch(`/api/tasks/${aliceTask.task.id}`, {
+      await bobApi.patch(`/api/v1/tasks/${aliceTask.task.id}`, {
         name: 'Hacked',
         version: aliceTask.task.version,
       })
@@ -35,12 +35,12 @@ test('users never see or change each other’s tasks and workbooks', async ({ br
   ).toBe(404);
   expect(
     (
-      await bobApi.delete(`/api/tasks/${aliceTask.task.id}?version=${aliceTask.task.version}`)
+      await bobApi.delete(`/api/v1/tasks/${aliceTask.task.id}?version=${aliceTask.task.version}`)
     ).status(),
   ).toBe(404);
   expect(
     (
-      await bobApi.post('/api/tasks', {
+      await bobApi.post('/api/v1/tasks', {
         name: 'Intrusion',
         entryDate: '2026-11-05',
         description: 'x',

@@ -1,4 +1,6 @@
+import { isIP } from 'node:net';
 import { z } from 'zod';
+import { adminPasswordProblem, adminUsernameSchema } from '../modules/admin/admin-policy.js';
 
 const booleanFromString = z.enum(['true', 'false']).transform((value) => value === 'true');
 
@@ -109,6 +111,28 @@ export const envSchema = z
     /** Task changes (create, edit, delete) per minute per user. */
     WRITE_RATE_LIMIT: positiveInt(60, 10_000),
 
+    // Admin panel
+    /**
+     * First administrator, created at start-up when no administrator with this username exists
+     * (never changed afterwards). Remove ADMIN_PASSWORD from the environment once signed in.
+     */
+    ADMIN_USERNAME: optionalString,
+    ADMIN_PASSWORD: optionalString,
+    /** An admin session ends after this many minutes without activity, ... */
+    ADMIN_SESSION_IDLE_MINUTES: positiveInt(30, 1_440),
+    /** ... and at the latest this many hours after sign-in. */
+    ADMIN_SESSION_MAX_HOURS: positiveInt(8, 72),
+    /** Failed admin sign-ins in a row that lock the account, and for how long. */
+    ADMIN_LOCKOUT_THRESHOLD: positiveInt(5, 100),
+    ADMIN_LOCKOUT_MINUTES: positiveInt(15, 1_440),
+    /**
+     * Optional allow-list of client addresses or CIDR ranges (e.g. `203.0.113.7, 10.0.0.0/8`)
+     * that may reach the admin API. Empty: any address.
+     */
+    ADMIN_ALLOWED_IPS: commaSeparatedList.default([]),
+    /** Page visits older than this are deleted (product analytics). */
+    PAGE_VIEW_RETENTION_DAYS: positiveInt(180, 3_650),
+
     // Workbooks
     /** Directory for .xlsx files (absolute, or relative to the backend's working directory). */
     WORKBOOK_STORAGE_DIR: z.string().trim().min(1).default('storage/workbooks'),
@@ -163,6 +187,44 @@ export const envSchema = z
         if (problem) {
           ctx.addIssue({ code: 'custom', path: [name], message: `${name} ${problem}` });
         }
+      }
+    }
+    if ((env.ADMIN_USERNAME === undefined) !== (env.ADMIN_PASSWORD === undefined)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [env.ADMIN_USERNAME ? 'ADMIN_PASSWORD' : 'ADMIN_USERNAME'],
+        message: 'ADMIN_USERNAME and ADMIN_PASSWORD must be set together',
+      });
+    }
+    if (env.ADMIN_USERNAME !== undefined) {
+      const username = adminUsernameSchema.safeParse(env.ADMIN_USERNAME);
+      if (!username.success) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['ADMIN_USERNAME'],
+          message: username.error.issues[0]?.message ?? 'Invalid username',
+        });
+      }
+    }
+    if (env.ADMIN_PASSWORD !== undefined) {
+      const problem = adminPasswordProblem(env.ADMIN_PASSWORD, env.ADMIN_USERNAME);
+      if (problem) {
+        ctx.addIssue({ code: 'custom', path: ['ADMIN_PASSWORD'], message: problem });
+      }
+    }
+    for (const entry of env.ADMIN_ALLOWED_IPS) {
+      const [address = '', prefix] = entry.split('/');
+      const version = isIP(address);
+      const maxPrefix = version === 6 ? 128 : 32;
+      if (
+        version === 0 ||
+        (prefix !== undefined && !(/^\d+$/.test(prefix) && Number(prefix) <= maxPrefix))
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['ADMIN_ALLOWED_IPS'],
+          message: `"${entry}" is not an IP address or CIDR range`,
+        });
       }
     }
     if (env.JWT_ACCESS_SECRET === env.CSRF_SECRET) {

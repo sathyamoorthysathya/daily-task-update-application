@@ -25,10 +25,14 @@ import {
   taskDetailFields,
   taskNameSchema,
   todayLocal,
+  toCustomValues,
   toTaskDetails,
   toWorkDetails,
   workDetailFields,
 } from '../tasks.schemas';
+import type { CustomColumn } from '../../workbooks/workbook.types';
+import { EXTRA_VALUE_MAX } from '../../workbooks/workbooks.schemas';
+import { TaskDetailSkeleton } from '../../../components/Skeletons';
 
 const STATUS_LABELS = TASK_STATUSES.map((status) => status.label);
 const labelToStatus = (label: string) => TASK_STATUSES.find((s) => s.label === label)?.value;
@@ -146,9 +150,7 @@ export function TaskDetailPage() {
   if (state.status === 'loading') {
     return (
       <div className="app app--task">
-        <p className="muted" role="status">
-          Loading task…
-        </p>
+        <TaskDetailSkeleton />
       </div>
     );
   }
@@ -252,6 +254,7 @@ export function TaskDetailPage() {
                   {editingUpdateId === update.id ? (
                     <EditUpdateForm
                       update={update}
+                      columns={task.workbook.customColumns}
                       onCancel={() => setEditingUpdateId(null)}
                       onSaved={afterChange}
                       onConflict={onConflict}
@@ -311,6 +314,14 @@ export function TaskDetailPage() {
                             {update.reference ? <Reference value={update.reference} /> : NONE}
                           </dd>
                         </div>
+                        {task.workbook.customColumns.map((column) => (
+                          <div key={column.id}>
+                            <dt>{column.name}</dt>
+                            <dd className="preserve-lines">
+                              {update.customValues[column.id] ?? NONE}
+                            </dd>
+                          </div>
+                        ))}
                       </dl>
                     </>
                   )}
@@ -567,13 +578,16 @@ function EditTaskForm({ task, onCancel, onSaved, onConflict }: EditTaskFormProps
 
 interface EditUpdateFormProps {
   update: TaskUpdate;
+  /** The workbook's extra columns. */
+  columns: CustomColumn[];
   onCancel: () => void;
   onSaved: (message: string) => void;
   onConflict: (error: unknown) => boolean;
 }
 
 /** Edits one dated entry (its date is part of the history and stays fixed). */
-function EditUpdateForm({ update, onCancel, onSaved, onConflict }: EditUpdateFormProps) {
+function EditUpdateForm({ update, columns, onCancel, onSaved, onConflict }: EditUpdateFormProps) {
+  const [customValues, setCustomValues] = useState<Record<string, string>>(update.customValues);
   const [values, setValues] = useState({
     description: update.description,
     reference: update.reference ?? '',
@@ -603,6 +617,7 @@ function EditUpdateForm({ update, onCancel, onSaved, onConflict }: EditUpdateFor
         reference: parsed.reference === '' ? null : parsed.reference,
         status: labelToStatus(parsed.status) ?? update.status,
         ...toWorkDetails(parsed),
+        ...(columns.length > 0 ? { customValues: toCustomValues(customValues, columns) } : {}),
       });
       onSaved(
         `The entry from ${formatTaskDate(update.entryDate)} was updated. ${syncMessage(result.excelSync)}`.trim(),
@@ -673,6 +688,24 @@ function EditUpdateForm({ update, onCancel, onSaved, onConflict }: EditUpdateFor
         value={values.status}
         onChange={change('status')}
       />
+      {columns.map((column) => {
+        const field = `customValues.${column.id}`;
+        return (
+          <TextField
+            key={column.id}
+            label={column.name}
+            name={field}
+            maxLength={EXTRA_VALUE_MAX}
+            value={customValues[column.id] ?? ''}
+            onChange={(event) => {
+              const value = event.target.value;
+              setCustomValues((current) => ({ ...current, [column.id]: value }));
+              clearFieldError(field);
+            }}
+            error={fieldErrors[field]}
+          />
+        );
+      })}
       <div className="form-actions">
         <button type="submit" className="button button--primary" disabled={saving}>
           {saving ? 'Saving…' : 'Save entry'}

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { parseCustomColumns, parseCustomValues } from './custom-columns.js';
 import type { LockedTx } from './workbook-lock.service.js';
 import { WorkbookStorageService } from './workbook-storage.service.js';
 import { WorkbookTemplateService } from './workbook-template.service.js';
@@ -61,6 +62,7 @@ export class WorkbookSyncService {
           startTime: true,
           endTime: true,
           remarks: true,
+          customValues: true,
           task: {
             select: {
               id: true,
@@ -94,7 +96,9 @@ export class WorkbookSyncService {
           startTime: update.startTime,
           endTime: update.endTime,
           remarks: update.remarks,
+          customValues: parseCustomValues(update.customValues),
         })),
+        parseCustomColumns(workbook.customColumns),
       );
       const stored = await this.storage.write(workbook.storageKey, file);
       await tx.workbook.update({

@@ -15,3 +15,19 @@ export function emitSessionExpired(): void {
     listener();
   }
 }
+
+const adminListeners = new Set<Listener>();
+
+/** Subscribes to "the admin session ended" (idle timeout, revoked, signed out elsewhere). */
+export function onAdminSessionExpired(listener: Listener): () => void {
+  adminListeners.add(listener);
+  return () => {
+    adminListeners.delete(listener);
+  };
+}
+
+export function emitAdminSessionExpired(): void {
+  for (const listener of adminListeners) {
+    listener();
+  }
+}

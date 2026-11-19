@@ -1,9 +1,10 @@
 import {
-  BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   UnauthorizedException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditService } from '../../common/monitoring/audit.service.js';
 import { PrismaService } from '../../database/prisma.service.js';
@@ -98,6 +99,7 @@ export class AuthService {
         message: 'Invalid email or password.',
       });
     }
+    await this.assertEnabled(user, 'password');
     await this.audit.record({
       event: 'auth.login',
       userId: user.id,
@@ -181,6 +183,7 @@ export class AuthService {
       });
     });
 
+    await this.assertEnabled(user, 'google');
     // A Google sign-in that removed an unverified password is the pre-hijacking protection.
     await this.audit.record({
       event: result.outcome === 'created' ? 'auth.register' : 'auth.google_login',
@@ -222,7 +225,7 @@ export class AuthService {
 
   /**
    * Changes the password after re-checking the current one. Other sessions are signed out;
-   * the session that made the change stays signed in. Errors are 400s (not 401) because the
+   * the session that made the change stays signed in. Errors are 422s (not 401) because the
    * session itself is valid.
    */
   async changePassword(user: AuthUser, input: ChangePasswordInput): Promise<void> {
@@ -231,7 +234,7 @@ export class AuthService {
       select: { passwordHash: true },
     });
     if (!record.passwordHash) {
-      throw new BadRequestException({
+      throw new UnprocessableEntityException({
         code: AuthErrorCode.PasswordNotSet,
         message:
           'Your account signs in with Google and has no password yet. Use "Forgot password" to set one.',
@@ -244,14 +247,14 @@ export class AuthService {
         userId: user.id,
         details: { reason: 'wrong_current_password' },
       });
-      throw new BadRequestException({
+      throw new UnprocessableEntityException({
         code: AuthErrorCode.InvalidCurrentPassword,
         message: 'Current password is incorrect.',
         errors: [{ field: 'currentPassword', message: 'Current password is incorrect.' }],
       });
     }
     if (input.currentPassword === input.newPassword) {
-      throw new BadRequestException({
+      throw new UnprocessableEntityException({
         code: AuthErrorCode.PasswordUnchanged,
         message: 'Choose a password different from your current one.',
         errors: [
@@ -276,8 +279,29 @@ export class AuthService {
     });
   }
 
+  /**
+   * An administrator disabled the account: no new sessions (existing ones were revoked when it
+   * was disabled). Checked only after the credentials were verified, so it reveals nothing.
+   */
+  private async assertEnabled(user: UserWithAccounts, method: 'password' | 'google') {
+    if (!user.disabledAt) {
+      return;
+    }
+    await this.audit.record({
+      event: 'auth.login',
+      outcome: 'FAILURE',
+      userId: user.id,
+      details: { method, reason: 'account_disabled' },
+    });
+    throw new ForbiddenException({
+      code: AuthErrorCode.AccountDisabled,
+      message: 'This account has been disabled. Contact your administrator for help.',
+    });
+  }
+
   private async startSession(user: UserWithAccounts, client: ClientInfo): Promise<AuthResult> {
     const tokens = await this.tokens.createSession(user.id, client);
+    await this.prisma.user.update({ where: { id: user.id }, data: { lastSeenAt: new Date() } });
     return { user: toUserProfile(user), tokens };
   }
 }

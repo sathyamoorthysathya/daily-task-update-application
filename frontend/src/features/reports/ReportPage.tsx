@@ -14,6 +14,7 @@ import {
   formatWorkingHours,
   todayLocal,
 } from '../tasks/tasks.schemas';
+import { ReportSkeleton } from '../../components/Skeletons';
 
 type Period = 'this-month' | 'last-month' | 'last-7-days' | 'overall' | 'custom';
 
@@ -290,6 +291,8 @@ export function ReportPage() {
           </button>
         </FormAlert>
       )}
+
+      {!report && loading && !error && <ReportSkeleton />}
 
       {report && !error && !dateError && (
         <div className={loading ? 'report-body is-loading' : 'report-body'} aria-busy={loading}>

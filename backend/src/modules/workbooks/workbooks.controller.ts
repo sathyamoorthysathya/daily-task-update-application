@@ -14,7 +14,7 @@ import {
 import { WriteRateLimit } from '../auth/decorators/rate-limit.decorator.js';
 import {
   ApiAcceptedResponse,
-  ApiBadRequestResponse,
+  ApiUnprocessableEntityResponse,
   ApiConflictResponse,
   ApiCookieAuth,
   ApiCreatedResponse,
@@ -75,7 +75,7 @@ export class WorkbooksController {
   })
   @ApiZodBody(createWorkbookSchema)
   @ApiCreatedResponse({ type: WorkbookDto })
-  @ApiBadRequestResponse({ type: ApiErrorResponseDto, description: 'Invalid name' })
+  @ApiUnprocessableEntityResponse({ type: ApiErrorResponseDto, description: 'Invalid name' })
   @ApiConflictResponse({ type: ApiErrorResponseDto, description: 'Name taken or limit reached' })
   create(
     @CurrentUser() user: AuthUser,

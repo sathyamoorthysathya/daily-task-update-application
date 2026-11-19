@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { CookieOptions, Response } from 'express';
+import { versionedApiPath } from '../../../common/versioning.js';
 import type { Env } from '../../../config/env.schema.js';
 import {
   ACCESS_TOKEN_COOKIE,
@@ -33,7 +34,8 @@ export class AuthCookieService {
     const prefix = config.get('API_PREFIX', { infer: true });
     this.secure = config.get('COOKIE_SECURE', { infer: true });
     this.apiPath = `/${prefix}`;
-    this.authPath = `/${prefix}/auth`;
+    // The refresh token is only ever sent to the auth routes.
+    this.authPath = `${versionedApiPath(prefix)}/auth`;
     this.accessTtlMs = config.get('ACCESS_TOKEN_TTL_SECONDS', { infer: true }) * 1000;
     this.refreshTtlMs = config.get('REFRESH_TOKEN_TTL_DAYS', { infer: true }) * 86_400_000;
   }

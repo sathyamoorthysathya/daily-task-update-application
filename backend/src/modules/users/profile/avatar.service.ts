@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable, UnprocessableEntityException } from '@nestjs/common';
 import sharp from 'sharp';
 
 /** Largest upload accepted (before processing). */
@@ -38,19 +38,19 @@ export function detectImageKind(buffer: Buffer): ImageKind | null {
 export class AvatarService {
   async process(buffer: Buffer | undefined): Promise<ProcessedAvatar> {
     if (!buffer || buffer.length === 0) {
-      throw new BadRequestException({
+      throw new UnprocessableEntityException({
         code: 'AVATAR_REQUIRED',
         message: 'Choose an image to upload.',
       });
     }
     if (buffer.length > AVATAR_MAX_UPLOAD_BYTES) {
-      throw new BadRequestException({
+      throw new UnprocessableEntityException({
         code: 'AVATAR_TOO_LARGE',
         message: 'The image must be 2 MB or smaller.',
       });
     }
     if (!detectImageKind(buffer)) {
-      throw new BadRequestException({
+      throw new UnprocessableEntityException({
         code: 'AVATAR_INVALID_TYPE',
         message: 'Upload a JPEG, PNG or WebP image.',
       });
@@ -64,7 +64,7 @@ export class AvatarService {
         .toBuffer();
       return { data, mimeType: AVATAR_MIME_TYPE };
     } catch {
-      throw new BadRequestException({
+      throw new UnprocessableEntityException({
         code: 'AVATAR_INVALID_IMAGE',
         message: 'The image could not be processed. Try a different file.',
       });
