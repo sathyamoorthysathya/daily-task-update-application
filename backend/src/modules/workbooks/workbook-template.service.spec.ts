@@ -25,6 +25,7 @@ describe('WorkbookTemplateService', () => {
       'Status',
       'Task ID (internal)',
       'Task Update ID (internal)',
+      'Task Type',
       'Project / Module',
       'Assigned By',
       'Priority',
@@ -46,7 +47,7 @@ describe('WorkbookTemplateService', () => {
     expect(sheet.getColumn(7).hidden).toBe(true);
     expect(sheet.getColumn(8).hidden).toBe(true);
     expect(
-      [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16].some((c) => sheet.getColumn(c).hidden),
+      [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17].some((c) => sheet.getColumn(c).hidden),
     ).toBe(false);
   });
 
@@ -92,7 +93,7 @@ describe('WorkbookTemplateService', () => {
     expect([1, 2, 3, 4, 5, 6].map((c) => sheet.getColumn(c).width)).toEqual([
       14, 14, 32, 60, 42, 16,
     ]);
-    expect(sheet.autoFilter).toBe('A1:P1');
+    expect(sheet.autoFilter).toBe('A1:Q1');
     expect(sheet.views[0]).toMatchObject({ state: 'frozen', ySplit: 1, topLeftCell: 'A2' });
     expect(sheet.getColumn(2).numFmt).toBe('yyyy-mm-dd');
     expect(sheet.getColumn(4).alignment).toMatchObject({ wrapText: true });
@@ -109,6 +110,7 @@ describe('WorkbookTemplateService', () => {
         description: '=HYPERLINK("http://evil.example")',
         reference: 'https://docs.example.com/report',
         status: 'IN_PROGRESS',
+        taskType: 'BUG',
         project: 'Billing',
         assignedBy: '=cmd|calc',
         priority: 'HIGH',
@@ -126,6 +128,9 @@ describe('WorkbookTemplateService', () => {
         description: 'Finished',
         reference: 'Ticket JIRA-12',
         status: 'COMPLETED',
+        // "Other": the user's own type is written, as plain text.
+        taskType: 'OTHER',
+        taskTypeOther: '=Code review',
       },
     ]);
     const sheet = (await load(buffer)).getWorksheet('Daily Tasks')!;
@@ -152,24 +157,31 @@ describe('WorkbookTemplateService', () => {
     expect(first.getCell(8).value).toBe('update-1');
     expect(second.getCell(8).value).toBe('update-2');
 
-    // Work details in columns I-P; rows without them stay empty.
-    expect(first.getCell(9).value).toBe('Billing');
-    expect(first.getCell(10).value).toBe('=cmd|calc');
-    expect(first.getCell(10).formula).toBeUndefined();
-    expect(first.getCell(11).value).toBe('High');
-    expect(first.getCell(12).value).toEqual(new Date('2026-11-20T00:00:00.000Z'));
-    expect(first.getCell(13).value).toBe('09:30');
-    expect(first.getCell(14).value).toBe('13:15');
-    expect(first.getCell(15).value).toBe(3.75);
-    expect(first.getCell(16).value).toBe('Waiting for the October invoices');
-    expect([9, 10, 11, 12, 13, 14, 15, 16].map((c) => second.getCell(c).text)).toEqual(
+    // Work details in columns I-Q; rows without them stay empty.
+    expect(first.getCell(9).value).toBe('Bug');
+    expect(first.getCell(10).value).toBe('Billing');
+    expect(first.getCell(11).value).toBe('=cmd|calc');
+    expect(first.getCell(11).formula).toBeUndefined();
+    expect(first.getCell(12).value).toBe('High');
+    expect(first.getCell(13).value).toEqual(new Date('2026-11-20T00:00:00.000Z'));
+    expect(first.getCell(14).value).toBe('09:30');
+    expect(first.getCell(15).value).toBe('13:15');
+    expect(first.getCell(16).value).toBe(3.75);
+    expect(first.getCell(17).value).toBe('Waiting for the October invoices');
+    expect(second.getCell(9).value).toBe('Other - =Code review');
+    expect(second.getCell(9).formula).toBeUndefined();
+    expect([10, 11, 12, 13, 14, 15, 16, 17].map((c) => second.getCell(c).text)).toEqual(
       Array(8).fill(''),
     );
 
-    expect(sheet.autoFilter).toBe('A1:P3');
+    expect(sheet.autoFilter).toBe('A1:Q3');
     expect(sheet.getCell('F2').dataValidation).toMatchObject({
       type: 'list',
       formulae: ['"To Do,In Progress,Pending,Completed,On Hold"'],
+    });
+    expect(sheet.getCell('I2').dataValidation).toMatchObject({
+      type: 'list',
+      formulae: ['"Feature,Bug,Improvement,Research,Testing,Documentation,Meeting,Support,Other"'],
     });
   });
 
@@ -198,16 +210,16 @@ describe('WorkbookTemplateService', () => {
     const sheet = (await load(buffer)).getWorksheet('Daily Tasks')!;
 
     const header = sheet.getRow(1);
-    expect(header.getCell(17).value).toBe('Client');
-    expect(header.getCell(18).value).toBe('Ticket ID');
-    expect(header.getCell(19).value).toBeNull();
-    expect(header.getCell(17).fill).toMatchObject({ fgColor: { argb: 'FF1F3A93' } });
+    expect(header.getCell(18).value).toBe('Client');
+    expect(header.getCell(19).value).toBe('Ticket ID');
+    expect(header.getCell(20).value).toBeNull();
+    expect(header.getCell(18).fill).toMatchObject({ fgColor: { argb: 'FF1F3A93' } });
 
-    expect(sheet.getRow(2).getCell(17).value).toBe('Acme');
-    expect(sheet.getRow(2).getCell(18).value).toBe('=1+1');
-    expect(sheet.getRow(2).getCell(18).formula).toBeUndefined();
-    expect(sheet.getRow(3).getCell(17).text).toBe('');
-    expect(sheet.getRow(3).getCell(18).value).toBe('JIRA-7');
-    expect(sheet.autoFilter).toBe('A1:R3');
+    expect(sheet.getRow(2).getCell(18).value).toBe('Acme');
+    expect(sheet.getRow(2).getCell(19).value).toBe('=1+1');
+    expect(sheet.getRow(2).getCell(19).formula).toBeUndefined();
+    expect(sheet.getRow(3).getCell(18).text).toBe('');
+    expect(sheet.getRow(3).getCell(19).value).toBe('JIRA-7');
+    expect(sheet.autoFilter).toBe('A1:S3');
   });
 });

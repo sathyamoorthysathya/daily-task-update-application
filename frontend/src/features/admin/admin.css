@@ -9,7 +9,7 @@
   --admin-warn-fg: #8a5300;
   --admin-info-bg: var(--accent-soft);
   --admin-info-fg: var(--accent);
-  --card-shadow: 0 1px 2px rgb(16 24 40 / 6%);
+  --card-shadow: var(--shadow-sm);
 }
 
 @media (prefers-color-scheme: dark) {

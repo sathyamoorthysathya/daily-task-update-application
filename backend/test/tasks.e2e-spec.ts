@@ -6,6 +6,7 @@ import type { App } from 'supertest/types.js';
 import type { PrismaService } from '../src/database/prisma.service.js';
 import { WorkbookStorageService } from '../src/modules/workbooks/workbook-storage.service.js';
 import { ExcelSyncWorker } from '../src/modules/workbooks/sync/excel-sync.worker.js';
+import { readWorkbookRows } from '../src/modules/workbooks/workbook-reader.js';
 import { AuthTestClient, uniqueEmail } from './support/auth-test-client.js';
 import { createTestApp } from './support/test-app.js';
 
@@ -548,6 +549,7 @@ describe('Daily task management (e2e)', () => {
 
   describe('work details and the work report', () => {
     const DETAILS = {
+      taskType: 'FEATURE',
       assignedBy: 'Priya (Team Lead)',
       priority: 'HIGH',
       project: 'Billing module',
@@ -562,6 +564,7 @@ describe('Daily task management (e2e)', () => {
 
       const created = (await createTask(client, DETAILS).expect(201)).body as SaveResult;
       expect(created.task).toMatchObject({
+        taskType: 'FEATURE',
         assignedBy: 'Priya (Team Lead)',
         priority: 'HIGH',
         project: 'Billing module',
@@ -593,8 +596,11 @@ describe('Daily task management (e2e)', () => {
       );
       const sheet = excel.getWorksheet('Daily Tasks')!;
       const cells = (rowNumber: number) =>
-        [9, 10, 11, 13, 14, 15, 16].map((column) => sheet.getRow(rowNumber).getCell(column).value);
+        [9, 10, 11, 12, 14, 15, 16, 17].map(
+          (column) => sheet.getRow(rowNumber).getCell(column).value,
+        );
       expect(cells(2)).toEqual([
+        'Feature',
         'Billing module',
         'Priya (Team Lead)',
         'High',
@@ -603,8 +609,15 @@ describe('Daily task management (e2e)', () => {
         3.75,
         'Waiting for the October invoices',
       ]);
-      expect(sheet.getRow(2).getCell(12).value).toEqual(new Date('2026-11-20T00:00:00.000Z'));
-      expect(cells(3).slice(3)).toEqual(['10:00', '11:00', 1, '']);
+      expect(sheet.getRow(2).getCell(13).value).toEqual(new Date('2026-11-20T00:00:00.000Z'));
+      expect(cells(3).slice(4)).toEqual(['10:00', '11:00', 1, '']);
+      // The task details are the same on every row of the task.
+      expect(cells(3).slice(0, 4)).toEqual([
+        'Feature',
+        'Billing module',
+        'Priya (Team Lead)',
+        'High',
+      ]);
     });
 
     it('rejects an end time that is not after the start time', async () => {
@@ -655,12 +668,14 @@ describe('Daily task management (e2e)', () => {
       const res = await client
         .patch(`/api/v1/tasks/${created.task.id}`, {
           name: BASE_TASK.name,
+          taskType: 'BUG',
           priority: 'LOW',
           assignedBy: '',
           version,
         })
         .expect(200);
       expect((res.body as { task: object }).task).toMatchObject({
+        taskType: 'BUG',
         priority: 'LOW',
         assignedBy: null,
         project: 'Billing module',
@@ -670,9 +685,55 @@ describe('Daily task management (e2e)', () => {
         where: { taskId: created.task.id, action: 'TASK_UPDATED' },
       });
       expect(history[0]!.changes).toEqual({
+        taskType: { from: 'FEATURE', to: 'BUG' },
         priority: { from: 'HIGH', to: 'LOW' },
         assignedBy: { from: 'Priya (Team Lead)', to: null },
       });
+    });
+
+    it('keeps the user’s own type for "Other", and writes it to Excel', async () => {
+      const { client, workbookId } = await userWithWorkbook('details-other');
+
+      const missing = await createTask(client, { taskType: 'OTHER' }).expect(422);
+      expect(missing.body.errors).toEqual([
+        { field: 'taskTypeOther', message: 'Enter the task type' },
+      ]);
+      const created = (
+        await createTask(client, { taskType: 'OTHER', taskTypeOther: ' Code  review ' }).expect(201)
+      ).body as SaveResult;
+      expect(created.task).toMatchObject({ taskType: 'OTHER', taskTypeOther: 'Code review' });
+
+      // A type other than "Other" never keeps the text.
+      const other = (
+        await createTask(client, { name: 'Fix login', taskType: 'BUG', taskTypeOther: 'x' }).expect(
+          201,
+        )
+      ).body as SaveResult;
+      expect(other.task).toMatchObject({ taskType: 'BUG', taskTypeOther: null });
+
+      await drain();
+      const row = await prisma.workbook.findUniqueOrThrow({ where: { id: workbookId } });
+      const rows = await readWorkbookRows(await readFile(path.join(storageRoot, row.storageKey)));
+      expect(rows.map((entry) => [entry.taskName, entry.taskType])).toEqual([
+        [BASE_TASK.name, 'Other - Code review'],
+        ['Fix login', 'Bug'],
+      ]);
+
+      // Only the text can change; switching to another type clears it.
+      const url = `/api/v1/tasks/${created.task.id}`;
+      const renamed = (
+        await client
+          .patch(url, { name: BASE_TASK.name, taskTypeOther: 'Demo', version: 1 })
+          .expect(200)
+      ).body as SaveResult;
+      expect(renamed.task).toMatchObject({ taskType: 'OTHER', taskTypeOther: 'Demo' });
+      await client.patch(url, { name: BASE_TASK.name, taskTypeOther: '', version: 2 }).expect(422);
+      const switched = (
+        await client
+          .patch(url, { name: BASE_TASK.name, taskType: 'RESEARCH', version: 2 })
+          .expect(200)
+      ).body as SaveResult;
+      expect(switched.task).toMatchObject({ taskType: 'RESEARCH', taskTypeOther: null });
     });
 
     it('reports the work of a period with totals, oldest day first', async () => {
@@ -752,7 +813,10 @@ describe('Daily task management (e2e)', () => {
       expect(daily.getRow(2).getCell(3).value).toBe(BASE_TASK.name);
       expect(daily.getRow(2).getCell(8).value).toBe(3.75);
       expect(daily.getRow(2).getCell(9).value).toBe('Waiting for the October invoices');
-      expect(excel.getWorksheet('Tasks')!.getRow(2).getCell(4).value).toBe('Priya (Team Lead)');
+      const tasksSheet = excel.getWorksheet('Tasks')!;
+      expect(tasksSheet.getRow(1).getCell(3).value).toBe('Task Type');
+      expect(tasksSheet.getRow(2).getCell(3).value).toBe('Feature');
+      expect(tasksSheet.getRow(2).getCell(5).value).toBe('Priya (Team Lead)');
 
       // And as a PDF.
       const pdf = await client

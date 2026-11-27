@@ -296,9 +296,26 @@ describe('NewTaskPage', () => {
       ).not.toHaveProperty('customValues');
     });
 
-    it('saves who assigned the task, its priority, project, due date, hours and remarks', async () => {
+    it('saves the task type, who assigned it, priority, project, due date, hours and remarks', async () => {
       const { requests } = renderForm({ 'POST /tasks': { status: 201, body: saved() } });
       await fillValidTask();
+      expect(
+        within(screen.getByLabelText('Task Type'))
+          .getAllByRole('option')
+          .map((option) => option.textContent),
+      ).toEqual([
+        'Not set',
+        'Feature',
+        'Bug',
+        'Improvement',
+        'Research',
+        'Testing',
+        'Documentation',
+        'Meeting',
+        'Support',
+        'Other',
+      ]);
+      fill('Task Type', 'Bug');
       fill('Project / Module', '  Billing   module ');
       fill('Assigned By', 'Priya (Team Lead)');
       fill('Priority', 'High');
@@ -312,6 +329,7 @@ describe('NewTaskPage', () => {
 
       await screen.findByText(/was added to Daily Tasks/);
       expect(requests.find((r) => r.method === 'POST' && r.path === '/tasks')?.body).toMatchObject({
+        taskType: 'BUG',
         project: 'Billing module',
         assignedBy: 'Priya (Team Lead)',
         priority: 'HIGH',
@@ -321,9 +339,33 @@ describe('NewTaskPage', () => {
         remarks: 'Waiting for invoices',
       });
       // The form is cleared for the next task.
+      expect(screen.getByLabelText('Task Type')).toHaveValue('');
       expect(screen.getByLabelText('Assigned By')).toHaveValue('');
       expect(screen.getByLabelText('Priority')).toHaveValue('');
       expect(screen.getByLabelText('Start Time')).toHaveValue('');
+    });
+
+    it('asks for the user’s own type when “Other” is chosen', async () => {
+      const { requests } = renderForm({ 'POST /tasks': { status: 201, body: saved() } });
+      await fillValidTask();
+      expect(screen.queryByLabelText('Your Task Type')).not.toBeInTheDocument();
+
+      fill('Task Type', 'Other');
+      const own = await screen.findByLabelText('Your Task Type');
+      await waitFor(() => expect(own).toHaveFocus());
+      submit();
+      expect(await screen.findByText('Enter the task type')).toBeInTheDocument();
+      expect(requests.some((r) => r.method === 'POST' && r.path === '/tasks')).toBe(false);
+
+      fill('Your Task Type', '  Code   review ');
+      submit();
+
+      await screen.findByText(/was added to Daily Tasks/);
+      expect(requests.find((r) => r.method === 'POST' && r.path === '/tasks')?.body).toMatchObject({
+        taskType: 'OTHER',
+        taskTypeOther: 'Code review',
+      });
+      expect(screen.queryByLabelText('Your Task Type')).not.toBeInTheDocument();
     });
 
     it('offers 12-hour times every 15 minutes, grouped by part of the day, and can clear a time', async () => {

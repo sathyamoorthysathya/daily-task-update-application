@@ -64,6 +64,7 @@ export function LoginPage() {
 
   return (
     <AuthLayout
+      scene
       title="Sign in"
       subtitle="Enter your credentials to access your daily tasks and Excel workbooks."
       footer={

@@ -161,6 +161,7 @@ describe('Workbook management (e2e)', () => {
         'Status',
         'Task ID (internal)',
         'Task Update ID (internal)',
+        'Task Type',
         'Project / Module',
         'Assigned By',
         'Priority',
@@ -172,7 +173,7 @@ describe('Workbook management (e2e)', () => {
       ]);
       expect(sheet.getColumn(7).hidden).toBe(true);
       expect(sheet.getColumn(8).hidden).toBe(true);
-      expect(sheet.autoFilter).toBe('A1:P1');
+      expect(sheet.autoFilter).toBe('A1:Q1');
       expect(sheet.views[0]).toMatchObject({ state: 'frozen', ySplit: 1 });
       expect(sheet.getRow(1).getCell(1).font).toMatchObject({ bold: true });
     });
@@ -241,7 +242,7 @@ describe('Workbook management (e2e)', () => {
       ]);
       const excel = new ExcelJS.Workbook();
       await excel.xlsx.load(res.body as ArrayBuffer);
-      expect(excel.getWorksheet('Daily Tasks')!.autoFilter).toBe('A1:R3');
+      expect(excel.getWorksheet('Daily Tasks')!.autoFilter).toBe('A1:S3');
     });
 
     it('never serves a file modified or removed outside the application; it is rebuilt from the database', async () => {

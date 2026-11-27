@@ -5,14 +5,17 @@ interface AuthLayoutProps {
   subtitle?: string;
   children: ReactNode;
   footer?: ReactNode;
+  /** Calm backdrop behind the sign-in card. */
+  scene?: boolean;
 }
 
 /**
  * Clean, centered authentication layout for Sign In, Registration, and Password Reset.
  */
-export function AuthLayout({ title, subtitle, children, footer }: AuthLayoutProps) {
+export function AuthLayout({ title, subtitle, children, footer, scene = false }: AuthLayoutProps) {
   return (
     <div className="auth-page">
+      {scene && <div className="auth-scene" aria-hidden="true" />}
       <main className="auth-card">
         <div className="auth-card-header">
           <div className="auth-brand-badge">

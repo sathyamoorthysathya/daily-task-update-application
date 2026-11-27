@@ -10,6 +10,8 @@ const TASK: TaskDto = {
   status: 'COMPLETED',
   lastEntryDate: '2026-11-20',
   entryCount: 20,
+  taskType: 'FEATURE',
+  taskTypeOther: null,
   assignedBy: 'Priya (Team Lead)',
   priority: 'HIGH',
   project: 'Billing module',

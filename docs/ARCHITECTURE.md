@@ -143,8 +143,8 @@ Every API error has the same shape (`AllExceptionsFilter`):
 - **The sheet "Daily Tasks":**
   - Columns: A Task Number · B Date · C Task Name · D Task Description · E Documentation Link / Reference · F Status.
   - Hidden internal ID columns: G Task ID · H Task Update ID.
-  - Work details: I Project / Module … P Remarks / Blockers.
-  - **Extra columns (optional):** up to 10 user-named columns chosen when the workbook is created (`customColumns`, stored as JSON `[{ id: "c1", name }]` on `workbooks`). They start at column Q so A–P never move. Each daily entry stores its values by column id (`task_updates.custom_values`); the New task form and the entry edit form show one input per column. Columns are fixed after creation.
+  - Work details: I Task Type (Feature, Bug, Improvement, Research, Testing, Documentation, Meeting, Support, Other; `tasks.task_type`, with a drop-down; for Other the user's own text, `tasks.task_type_other`, is written as "Other - Code review") · J Project / Module … Q Remarks / Blockers.
+  - **Extra columns (optional):** up to 10 user-named columns chosen when the workbook is created (`customColumns`, stored as JSON `[{ id: "c1", name }]` on `workbooks`). They start at column R so A–Q never move. Each daily entry stores its values by column id (`task_updates.custom_values`); the New task form and the entry edit form show one input per column. Columns are fixed after creation.
   - Styled, frozen header with filters; a status drop-down and colours.
   - Only `http(s)` references become links. Text is never stored as a formula.
 - **Storage:**

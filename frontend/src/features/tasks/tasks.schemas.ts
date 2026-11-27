@@ -44,18 +44,36 @@ export const referenceSchema = z
 
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH'] as const;
 
+const TYPES = [
+  'FEATURE',
+  'BUG',
+  'IMPROVEMENT',
+  'RESEARCH',
+  'TESTING',
+  'DOCUMENTATION',
+  'MEETING',
+  'SUPPORT',
+  'OTHER',
+] as const;
+
 /** Optional one-line text (assigned by, project): inner whitespace collapsed. */
-const lineSchema = (label: string) =>
+const lineSchema = (label: string, max = 100) =>
   z
     .string()
     .transform((value) => value.replace(/\s+/g, ' ').trim())
-    .pipe(z.string().max(100, `${label} must be at most 100 characters`));
+    .pipe(z.string().max(max, `${label} must be at most ${max} characters`));
+
+/** Longest own task type ("Other"). */
+export const TASK_TYPE_OTHER_MAX = 50;
 
 /** Optional time of day from a time input ("HH:MM"; empty = not set). */
 const timeSchema = z.string().regex(/^$|^([01]\d|2[0-3]):[0-5]\d$/, 'Enter a time such as 09:30');
 
 /** Details of the task itself (all optional; empty = not set). */
 export const taskDetailFields = {
+  taskType: z.enum(['', ...TYPES], { error: 'Choose a task type' }),
+  /** The user's own type, with "Other" (see checkTaskTypeOther). */
+  taskTypeOther: lineSchema('Task type', TASK_TYPE_OTHER_MAX),
   assignedBy: lineSchema('Assigned by'),
   priority: z.enum(['', ...PRIORITIES], { error: 'Choose a priority' }),
   project: lineSchema('Project'),
@@ -71,6 +89,16 @@ export const workDetailFields = {
   endTime: timeSchema,
   remarks: z.string().trim().max(2000, 'Remarks must be at most 2000 characters'),
 };
+
+/** "Other" needs the user's own type (same rule as the API). */
+export function checkTaskTypeOther(
+  value: { taskType: string; taskTypeOther: string },
+  context: z.RefinementCtx,
+): void {
+  if (value.taskType === 'OTHER' && value.taskTypeOther === '') {
+    context.addIssue({ code: 'custom', path: ['taskTypeOther'], message: 'Enter the task type' });
+  }
+}
 
 /** An end time needs a start time and must come after it (same rules as the API). */
 export function checkWorkingHours(
@@ -119,7 +147,10 @@ export const taskFormSchema = z
     ...taskDetailFields,
     ...workDetailFields,
   })
-  .superRefine(checkWorkingHours);
+  .superRefine((value, context) => {
+    checkTaskTypeOther(value, context);
+    checkWorkingHours(value, context);
+  });
 
 export type ParsedTaskForm = z.output<typeof taskFormSchema>;
 
@@ -127,12 +158,17 @@ const orNull = (value: string) => (value === '' ? null : value);
 
 /** Form values of the task details as the API expects them (empty = none). */
 export function toTaskDetails(values: {
+  taskType: '' | TaskDetails['taskType'];
+  taskTypeOther: string;
   assignedBy: string;
   priority: '' | TaskDetails['priority'];
   project: string;
   dueDate: string;
 }): TaskDetails {
   return {
+    taskType: values.taskType || null,
+    // The own type is kept only with "Other".
+    taskTypeOther: values.taskType === 'OTHER' ? orNull(values.taskTypeOther) : null,
     assignedBy: orNull(values.assignedBy),
     priority: values.priority || null,
     project: orNull(values.project),

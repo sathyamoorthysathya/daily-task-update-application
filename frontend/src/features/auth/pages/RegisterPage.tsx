@@ -50,6 +50,7 @@ export function RegisterPage() {
 
   return (
     <AuthLayout
+      scene
       title="Create your account"
       subtitle="Set up your workspace in seconds. Your first Excel workbook comes next."
       footer={

@@ -1,6 +1,10 @@
-import { priorityLabel, statusLabel } from './task-status';
+import { priorityLabel, statusLabel, TASK_TYPES } from './task-status';
 import { formatTaskDate } from './tasks.schemas';
 import type { TaskHistoryEntry, TaskPriority, TaskStatus } from './task.types';
+
+function asTaskType(value: unknown): string {
+  return TASK_TYPES.find((type) => type.value === value)?.label ?? 'none';
+}
 
 const STATUS_VALUES = ['TO_DO', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'ON_HOLD'];
 
@@ -77,6 +81,18 @@ export function describeHistory(entry: TaskHistoryEntry): { title: string; detai
       const details: string[] = [];
       if (isChange(changes.name)) {
         details.push(`Name: “${String(changes.name.from)}” → “${String(changes.name.to)}”`);
+      }
+      if (isChange(changes.taskType) || isChange(changes.taskTypeOther)) {
+        // "Other" reads as "Other - <own text>"; without a change of type it stayed "Other".
+        const type = isChange(changes.taskType) ? changes.taskType : { from: 'OTHER', to: 'OTHER' };
+        const own = isChange(changes.taskTypeOther) ? changes.taskTypeOther : null;
+        const describe = (value: unknown, text: unknown) =>
+          value === 'OTHER' && typeof text === 'string' && text
+            ? `${asTaskType(value)} - ${text}`
+            : asTaskType(value);
+        details.push(
+          `Task type: ${describe(type.from, own?.from)} → ${describe(type.to, own?.to)}`,
+        );
       }
       const text = (value: unknown) => (typeof value === 'string' && value ? value : 'none');
       for (const [field, label] of [

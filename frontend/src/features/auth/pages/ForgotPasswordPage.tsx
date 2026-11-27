@@ -32,6 +32,7 @@ export function ForgotPasswordPage() {
 
   return (
     <AuthLayout
+      scene
       title="Forgot your password?"
       subtitle="Enter your registered email address and we'll send you a secure recovery link."
       footer={<Link to="/login">Back to sign in</Link>}

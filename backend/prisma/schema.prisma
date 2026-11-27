@@ -204,13 +204,28 @@ enum TaskPriority {
   @@map("task_priority")
 }
 
+/// Kind of work a task is.
+enum TaskType {
+  FEATURE
+  BUG
+  IMPROVEMENT
+  RESEARCH
+  TESTING
+  DOCUMENTATION
+  MEETING
+  SUPPORT
+  OTHER
+
+  @@map("task_type")
+}
+
 enum TaskHistoryAction {
   TASK_CREATED
   ENTRY_ADDED
   ENTRY_UPDATED
   TASK_RENAMED
   TASK_DELETED
-  /// Task details changed (assigned by, priority, project, due date), possibly with the name.
+  /// Task details changed (type, assigned by, priority, project, due date), possibly with the name.
   TASK_UPDATED
 
   @@map("task_history_action")
@@ -231,6 +246,10 @@ model Task {
   status        TaskStatus
   lastEntryDate DateTime      @map("last_entry_date") @db.Date
   entryCount    Int           @default(1) @map("entry_count")
+  /// Feature, bug, research...
+  taskType      TaskType?     @map("task_type")
+  /// The user's own type when taskType is OTHER (e.g. "Code review"); NULL otherwise.
+  taskTypeOther String?       @map("task_type_other") @db.VarChar(50)
   /// Who gave the task (manager, team lead, client...).
   assignedBy    String?       @map("assigned_by") @db.VarChar(100)
   priority      TaskPriority?

@@ -11,6 +11,7 @@ import { useWorkbookList } from '../../workbooks/use-workbook-list';
 import { DuplicateTaskDialog, type DuplicateChoice } from '../components/DuplicateTaskDialog';
 import { RecentUpdates } from '../components/RecentUpdates';
 import { StatusBadge } from '../components/StatusBadge';
+import { TaskTypeField } from '../components/TaskTypeField';
 import { TASK_PRIORITIES, TASK_STATUSES } from '../task-status';
 import { ExcelSyncNotice } from '../../workbooks/components/ExcelSyncNotice';
 import type {
@@ -20,6 +21,7 @@ import type {
   TaskMatch,
   TaskPriority,
   TaskStatus,
+  TaskType,
 } from '../task.types';
 import { tasksApi } from '../tasks.api';
 import {
@@ -40,6 +42,9 @@ type FormFields = {
   taskNumber: string | null;
   name: string;
   entryDate: string;
+  taskType: '' | TaskType;
+  /** The user's own type, with "Other". */
+  taskTypeOther: string;
   project: string;
   assignedBy: string;
   priority: '' | TaskPriority;
@@ -56,6 +61,8 @@ const emptyFields = (entryDate = todayLocal()): FormFields => ({
   taskNumber: null,
   name: '',
   entryDate,
+  taskType: '',
+  taskTypeOther: '',
   project: '',
   assignedBy: '',
   priority: '',
@@ -98,6 +105,7 @@ export function NewTaskPage() {
   const [recentVersion, setRecentVersion] = useState(0);
   const lookupRequest = useRef(0);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const typeOtherRef = useRef<HTMLInputElement>(null);
   const { fieldErrors, formError, validate, handleError, clearFieldError, reset } = useFormErrors();
 
   const list = state.status === 'ready' ? state.data : null;
@@ -379,6 +387,26 @@ export function NewTaskPage() {
                 </p>
               )}
             </div>
+            <TaskTypeField
+              taskType={values.taskType}
+              taskTypeOther={values.taskTypeOther}
+              otherRef={typeOtherRef}
+              onTypeChange={(taskType) => {
+                setValues((current) => ({ ...current, taskType }));
+                clearFieldError('taskType');
+                clearFieldError('taskTypeOther');
+                if (taskType === 'OTHER') {
+                  // Straight to the box for the user's own type.
+                  requestAnimationFrame(() => typeOtherRef.current?.focus());
+                }
+              }}
+              onOtherChange={(taskTypeOther) => {
+                setValues((current) => ({ ...current, taskTypeOther }));
+                clearFieldError('taskTypeOther');
+              }}
+              error={fieldErrors.taskType}
+              otherError={fieldErrors.taskTypeOther}
+            />
             <TextField
               label="Project / Module"
               name="project"

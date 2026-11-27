@@ -16,6 +16,7 @@ export interface WorkbookRow {
   description: string;
   reference: string;
   status: string;
+  taskType: string;
   project: string;
   assignedBy: string;
   priority: string;
@@ -25,7 +26,7 @@ export interface WorkbookRow {
   /** Hours as a number; null when no working time was recorded. */
   hoursWorked: number | null;
   remarks: string;
-  /** Extra columns added by the user (after column P), by header name. */
+  /** Extra columns added by the user (after column Q), by header name. */
   extra: Record<string, string>;
 }
 
@@ -53,8 +54,8 @@ export async function readWorkbookRows(file: Buffer): Promise<WorkbookRow[]> {
     }
     const date = row.getCell(2).value;
     const detail = (offset: number) => row.getCell(WORK_DETAIL_FIRST_COLUMN + offset);
-    const dueDate = detail(3).value;
-    const hours = detail(6).value;
+    const dueDate = detail(4).value;
+    const hours = detail(7).value;
     rows.push({
       taskId: row.getCell(TASK_ID_COLUMN).text,
       taskUpdateId: row.getCell(UPDATE_ID_COLUMN).text,
@@ -64,14 +65,15 @@ export async function readWorkbookRows(file: Buffer): Promise<WorkbookRow[]> {
       description: row.getCell(4).text,
       reference: row.getCell(5).text,
       status: row.getCell(6).text,
-      project: detail(0).text,
-      assignedBy: detail(1).text,
-      priority: detail(2).text,
-      dueDate: dueDate instanceof Date ? dueDate.toISOString().slice(0, 10) : detail(3).text,
-      startTime: detail(4).text,
-      endTime: detail(5).text,
+      taskType: detail(0).text,
+      project: detail(1).text,
+      assignedBy: detail(2).text,
+      priority: detail(3).text,
+      dueDate: dueDate instanceof Date ? dueDate.toISOString().slice(0, 10) : detail(4).text,
+      startTime: detail(5).text,
+      endTime: detail(6).text,
       hoursWorked: typeof hours === 'number' ? hours : null,
-      remarks: detail(7).text,
+      remarks: detail(8).text,
       extra: Object.fromEntries(
         extraHeaders.map(({ column, name }) => [name, row.getCell(column).text]),
       ),

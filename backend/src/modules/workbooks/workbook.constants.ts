@@ -22,10 +22,11 @@ export const INTERNAL_ID_COLUMNS = [
 ] as const;
 
 /**
- * Work details, columns I-P. They come after the original columns so that A-H keep their
+ * Work details, columns I-Q. They come after the original columns so that A-H keep their
  * positions in workbooks created before these details existed.
  */
 export const WORK_DETAIL_COLUMNS = [
+  { key: 'taskType', header: 'Task Type', width: 16 },
   { key: 'project', header: 'Project / Module', width: 24 },
   { key: 'assignedBy', header: 'Assigned By', width: 22 },
   { key: 'priority', header: 'Priority', width: 12 },

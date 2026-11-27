@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TASK_STATUS_VALUES } from './task-status.js';
+import { TASK_STATUS_VALUES, TASK_TYPE_VALUES } from './task-status.js';
 import { customValuesSchema } from '../workbooks/custom-columns.js';
 
 /** C0 control characters and DEL (browsers drop some of them inside URLs). */
@@ -96,6 +96,8 @@ const prioritySchema = z
   .enum(TASK_PRIORITY_VALUES, { error: 'Choose a valid priority' })
   .nullable();
 
+const taskTypeSchema = z.enum(TASK_TYPE_VALUES, { error: 'Choose a valid task type' }).nullable();
+
 /** Deadline: any valid calendar date from 2000 on (it may be in the past or far ahead). */
 const dueDateSchema = z
   .string({ error: 'Due date must be a date' })
@@ -127,6 +129,9 @@ const remarksSchema = orNull(
 
 /** Details of the task itself (the same for all its daily entries); null clears one. */
 const taskDetailSchemas = {
+  taskType: taskTypeSchema,
+  /** The user's own type, with taskType OTHER (ignored for the other types). */
+  taskTypeOther: lineSchema('Task type', 50),
   assignedBy: lineSchema('Assigned by', 100),
   priority: prioritySchema,
   project: lineSchema('Project', 100),
@@ -134,6 +139,8 @@ const taskDetailSchemas = {
 };
 
 const taskDetailFields = {
+  taskType: orNull(taskDetailSchemas.taskType),
+  taskTypeOther: orNull(taskDetailSchemas.taskTypeOther),
   assignedBy: orNull(taskDetailSchemas.assignedBy),
   priority: orNull(taskDetailSchemas.priority),
   project: orNull(taskDetailSchemas.project),
@@ -183,6 +190,22 @@ function checkWorkingHours(
   }
 }
 
+export const TASK_TYPE_OTHER_REQUIRED = 'Enter the task type';
+
+/** "Other" needs the user's own type (sent with it; null or empty is not a type). */
+function checkTaskTypeOther(
+  value: { taskType?: string | null; taskTypeOther?: string | null },
+  context: z.RefinementCtx,
+): void {
+  if (value.taskType === 'OTHER' && !value.taskTypeOther) {
+    context.addIssue({
+      code: 'custom',
+      path: ['taskTypeOther'],
+      message: TASK_TYPE_OTHER_REQUIRED,
+    });
+  }
+}
+
 export const createTaskSchema = z
   .strictObject({
     /** Omit to use the default workbook. */
@@ -198,7 +221,10 @@ export const createTaskSchema = z
     ...taskDetailFields,
     ...entryFields,
   })
-  .superRefine(checkWorkingHours);
+  .superRefine((value, context) => {
+    checkTaskTypeOther(value, context);
+    checkWorkingHours(value, context);
+  });
 
 /** "Create New Daily Task Entry" for an existing task. */
 export const addTaskUpdateSchema = z.strictObject(entryFields).superRefine(checkWorkingHours);
@@ -268,14 +294,19 @@ export const taskSummaryQuerySchema = z.object({
  * Renames a task and/or changes its details. Details that are omitted stay as they are; send
  * null (or an empty text) to clear one.
  */
-export const renameTaskSchema = z.strictObject({
-  name: taskNameSchema,
-  assignedBy: taskDetailSchemas.assignedBy.optional(),
-  priority: taskDetailSchemas.priority.optional(),
-  project: taskDetailSchemas.project.optional(),
-  dueDate: taskDetailSchemas.dueDate.optional(),
-  version: z.number({ error: 'Version is required' }).int().min(1),
-});
+export const renameTaskSchema = z
+  .strictObject({
+    name: taskNameSchema,
+    taskType: taskDetailSchemas.taskType.optional(),
+    /** Send with taskType OTHER, or alone to change the text of a task that is already "Other". */
+    taskTypeOther: taskDetailSchemas.taskTypeOther.optional(),
+    assignedBy: taskDetailSchemas.assignedBy.optional(),
+    priority: taskDetailSchemas.priority.optional(),
+    project: taskDetailSchemas.project.optional(),
+    dueDate: taskDetailSchemas.dueDate.optional(),
+    version: z.number({ error: 'Version is required' }).int().min(1),
+  })
+  .superRefine(checkTaskTypeOther);
 
 /** Work report: the entries dated in [from, to]; without bounds, everything. */
 export const taskReportQuerySchema = z

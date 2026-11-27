@@ -12,10 +12,19 @@ import { ApiError, errorMessage } from '../../../lib/api/api-error';
 import { useFormErrors } from '../../auth/use-form-errors';
 import { StatusBadge } from '../components/StatusBadge';
 import { describeHistory } from '../task-history';
-import { priorityLabel, TASK_PRIORITIES, TASK_STATUSES } from '../task-status';
-import type { ExcelSync, TaskDetail, TaskDetails, TaskStatus, TaskUpdate } from '../task.types';
+import { TaskTypeField } from '../components/TaskTypeField';
+import { priorityLabel, TASK_PRIORITIES, TASK_STATUSES, taskTypeText } from '../task-status';
+import type {
+  ExcelSync,
+  TaskDetail,
+  TaskDetails,
+  TaskStatus,
+  TaskType,
+  TaskUpdate,
+} from '../task.types';
 import { tasksApi } from '../tasks.api';
 import {
+  checkTaskTypeOther,
   checkWorkingHours,
   descriptionSchema,
   formatMinutes,
@@ -53,7 +62,9 @@ const entryFields = {
 const entrySchema = z.object(entryFields).superRefine(checkWorkingHours);
 
 /** The task itself: its name and details. */
-const editSchema = z.object({ name: taskNameSchema, ...taskDetailFields });
+const editSchema = z
+  .object({ name: taskNameSchema, ...taskDetailFields })
+  .superRefine(checkTaskTypeOther);
 
 const NONE = <span className="muted">—</span>;
 
@@ -198,6 +209,7 @@ export function TaskDetailPage() {
           <h1>{task.name}</h1>
           <p className="task-meta">
             <StatusBadge status={task.status} />
+            {task.taskType && <span className="task-type">{taskTypeText(task)}</span>}
             {task.priority && (
               <span className={`priority priority--${task.priority.toLowerCase()}`}>
                 {priorityLabel(task.priority)} priority
@@ -384,6 +396,10 @@ export function TaskDetailPage() {
             ) : (
               <dl className="task-facts">
                 <div>
+                  <dt>Task type</dt>
+                  <dd>{task.taskType ? taskTypeText(task) : NONE}</dd>
+                </div>
+                <div>
                   <dt>Project / module</dt>
                   <dd>{task.project ?? NONE}</dd>
                 </div>
@@ -462,18 +478,25 @@ interface EditTaskFormProps {
 }
 
 /**
- * Edits what the Details card shows: the task name, project, who assigned it, priority and
- * due date. Daily entries have their own Edit buttons.
+ * Edits what the Details card shows: the task name, type, project, who assigned it, priority
+ * and due date. Daily entries have their own Edit buttons.
  */
 function EditTaskForm({ task, onCancel, onSaved, onConflict }: EditTaskFormProps) {
-  const [values, setValues] = useState({
+  const [values, setValues] = useState<
+    Record<'name' | 'taskTypeOther' | 'project' | 'assignedBy' | 'priority' | 'dueDate', string> & {
+      taskType: '' | TaskType;
+    }
+  >({
     name: task.name,
+    taskType: task.taskType ?? '',
+    taskTypeOther: task.taskTypeOther ?? '',
     project: task.project ?? '',
     assignedBy: task.assignedBy ?? '',
     priority: task.priority ?? '',
     dueDate: task.dueDate ?? '',
   });
   const [saving, setSaving] = useState(false);
+  const typeOtherRef = useRef<HTMLInputElement>(null);
   const { fieldErrors, formError, validate, handleError, clearFieldError } = useFormErrors();
 
   const update = (field: keyof typeof values) => (event: { target: { value: string } }) => {
@@ -490,7 +513,14 @@ function EditTaskForm({ task, onCancel, onSaved, onConflict }: EditTaskFormProps
     // Only the task details that changed are sent.
     const details = toTaskDetails(parsed);
     const changedDetails: Partial<TaskDetails> = {};
-    for (const field of ['project', 'assignedBy', 'priority', 'dueDate'] as const) {
+    for (const field of [
+      'taskType',
+      'taskTypeOther',
+      'project',
+      'assignedBy',
+      'priority',
+      'dueDate',
+    ] as const) {
       if (details[field] !== task[field]) {
         Object.assign(changedDetails, { [field]: details[field] });
       }
@@ -526,6 +556,25 @@ function EditTaskForm({ task, onCancel, onSaved, onConflict }: EditTaskFormProps
         value={values.name}
         onChange={update('name')}
         error={fieldErrors.name}
+      />
+      <TaskTypeField
+        taskType={values.taskType}
+        taskTypeOther={values.taskTypeOther}
+        otherRef={typeOtherRef}
+        onTypeChange={(taskType) => {
+          setValues((current) => ({ ...current, taskType }));
+          clearFieldError('taskType');
+          clearFieldError('taskTypeOther');
+          if (taskType === 'OTHER') {
+            requestAnimationFrame(() => typeOtherRef.current?.focus());
+          }
+        }}
+        onOtherChange={(taskTypeOther) => {
+          setValues((current) => ({ ...current, taskTypeOther }));
+          clearFieldError('taskTypeOther');
+        }}
+        error={fieldErrors.taskType}
+        otherError={fieldErrors.taskTypeOther}
       />
       <TextField
         label="Project / Module"

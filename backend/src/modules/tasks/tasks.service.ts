@@ -56,6 +56,7 @@ import {
   type ReportDownloadQuery,
   type TaskReportQuery,
   type TaskSummaryQuery,
+  TASK_TYPE_OTHER_REQUIRED,
   taskNameKey,
 } from './tasks.schemas.js';
 
@@ -120,6 +121,8 @@ function toTaskDto(task: Task): TaskDto {
     status: task.status,
     lastEntryDate: formatCalendarDate(task.lastEntryDate),
     entryCount: task.entryCount,
+    taskType: task.taskType,
+    taskTypeOther: task.taskTypeOther,
     assignedBy: task.assignedBy,
     priority: task.priority,
     project: task.project,
@@ -271,6 +274,8 @@ export class TasksService {
     const nameKey = taskNameKey(input.name);
     const entryDate = parseCalendarDate(input.entryDate);
     const customValues = cleanCustomValues(input.customValues, workbook.customColumns);
+    // The user's own type belongs to "Other" only.
+    const taskTypeOther = input.taskType === 'OTHER' ? input.taskTypeOther : null;
 
     let saved: Saved;
     try {
@@ -308,6 +313,8 @@ export class TasksService {
             nameKey,
             status: input.status,
             lastEntryDate: entryDate,
+            taskType: input.taskType,
+            taskTypeOther,
             assignedBy: input.assignedBy,
             priority: input.priority,
             project: input.project,
@@ -338,6 +345,8 @@ export class TasksService {
               taskNumber: task.taskNumber,
               name: task.name,
               workbookId: workbook.id,
+              taskType: input.taskType,
+              taskTypeOther,
               assignedBy: input.assignedBy,
               priority: input.priority,
               project: input.project,
@@ -611,8 +620,8 @@ export class TasksService {
   }
 
   /**
-   * Renames a task (unique per workbook) and/or changes its details (assigned by, priority,
-   * project, due date); the Excel rows follow. Details that are not sent stay as they are.
+   * Renames a task (unique per workbook) and/or changes its details (type, assigned by,
+   * priority, project, due date); the Excel rows follow. Details that are not sent stay as they are.
    */
   async rename(
     userId: string,
@@ -629,6 +638,30 @@ export class TasksService {
       changes.name = { from: task.name, to: input.name };
       data.name = input.name;
       data.nameKey = taskNameKey(input.name);
+    }
+    // Task type: the user's own text belongs to "Other" only, and "Other" needs one.
+    const taskType = input.taskType !== undefined ? input.taskType : task.taskType;
+    const taskTypeOther =
+      taskType !== 'OTHER'
+        ? null
+        : input.taskTypeOther !== undefined
+          ? input.taskTypeOther
+          : task.taskTypeOther;
+    const typeSent = input.taskType !== undefined || input.taskTypeOther !== undefined;
+    if (typeSent && taskType === 'OTHER' && !taskTypeOther) {
+      throw new UnprocessableEntityException({
+        code: 'VALIDATION_FAILED',
+        message: [`taskTypeOther: ${TASK_TYPE_OTHER_REQUIRED}`],
+        errors: [{ field: 'taskTypeOther', message: TASK_TYPE_OTHER_REQUIRED }],
+      });
+    }
+    if (taskType !== task.taskType) {
+      changes.taskType = { from: task.taskType, to: taskType };
+      data.taskType = taskType;
+    }
+    if (taskTypeOther !== task.taskTypeOther) {
+      changes.taskTypeOther = { from: task.taskTypeOther, to: taskTypeOther };
+      data.taskTypeOther = taskTypeOther;
     }
     for (const field of ['assignedBy', 'priority', 'project'] as const) {
       const next = input[field];
