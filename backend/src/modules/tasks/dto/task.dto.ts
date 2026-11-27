@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { TASK_STATUS_VALUES } from '../task-status.js';
+import { TASK_STATUS_VALUES, TASK_TYPE_VALUES } from '../task-status.js';
 import { CustomColumnDto } from '../../workbooks/dto/workbook.dto.js';
 
 export class TaskUpdateDto {
@@ -77,6 +77,22 @@ export class TaskDto {
 
   @ApiProperty({ description: 'Number of dated updates' })
   entryCount!: number;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    enum: TASK_TYPE_VALUES,
+    description: 'Kind of work (feature, bug, research...)',
+  })
+  taskType!: string | null;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    example: 'Code review',
+    description: 'The user’s own type when taskType is OTHER',
+  })
+  taskTypeOther!: string | null;
 
   @ApiProperty({ type: String, nullable: true, example: 'Priya (Team Lead)' })
   assignedBy!: string | null;

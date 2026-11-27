@@ -31,11 +31,12 @@ export const DAILY_TASK_COLUMNS = [
   'Status',
 ];
 
-/** Headers of every built-in column (A-P); extra columns cannot reuse them. */
+/** Headers of every built-in column (A-Q); extra columns cannot reuse them. */
 const BUILT_IN_HEADERS = [
   ...DAILY_TASK_COLUMNS,
   'Task ID (internal)',
   'Task Update ID (internal)',
+  'Task Type',
   'Project / Module',
   'Assigned By',
   'Priority',
@@ -48,8 +49,8 @@ const BUILT_IN_HEADERS = [
 
 export const MAX_EXTRA_COLUMNS = 10;
 export const EXTRA_COLUMN_NAME_MAX = 50;
-/** Extra columns start after the built-in ones: column Q. */
-export const FIRST_EXTRA_COLUMN = 17;
+/** Extra columns start after the built-in ones: column R. */
+export const FIRST_EXTRA_COLUMN = 18;
 /** Longest value of an extra column on an entry. */
 export const EXTRA_VALUE_MAX = 1000;
 

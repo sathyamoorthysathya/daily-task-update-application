@@ -227,7 +227,7 @@ export class TasksController {
   @ApiOperation({
     summary: 'Rename a task or change its details',
     description:
-      'Changes the name and/or assigned by, priority, project and due date (omitted details ' +
+      'Changes the name and/or task type, assigned by, priority, project and due date (omitted details ' +
       'stay as they are; null clears one). Requires the task version; the Excel rows follow.',
   })
   @ApiZodBody(renameTaskSchema)

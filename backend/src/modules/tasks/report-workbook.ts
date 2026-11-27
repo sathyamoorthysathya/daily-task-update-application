@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs';
 import type { TaskReportDto } from './dto/task.dto.js';
-import { taskStatusLabel } from './task-status.js';
-import type { TaskStatus } from '../../generated/prisma/client.js';
+import { taskStatusLabel, taskTypeText } from './task-status.js';
+import type { TaskStatus, TaskType } from '../../generated/prisma/client.js';
 
 const HEADER_FILL = 'FF1F3A93';
 const HEADER_FONT = 'FFFFFFFF';
@@ -122,6 +122,7 @@ export async function buildReportWorkbook(
   tasks.columns = [
     { header: 'Task #', key: 'number', width: 9 },
     { header: 'Task', key: 'name', width: 36 },
+    { header: 'Task Type', key: 'taskType', width: 15 },
     { header: 'Project / Module', key: 'project', width: 22 },
     { header: 'Assigned By', key: 'assignedBy', width: 22 },
     { header: 'Priority', key: 'priority', width: 11 },
@@ -161,6 +162,7 @@ export async function buildReportWorkbook(
     const row = tasks.addRow({
       number: task.taskNumber,
       name: task.name,
+      taskType: taskTypeText(task.taskType as TaskType | null, task.taskTypeOther),
       project: task.project ?? '',
       assignedBy: task.assignedBy ?? '',
       priority: task.priority ? (PRIORITY_LABEL[task.priority] ?? task.priority) : '',
@@ -176,7 +178,7 @@ export async function buildReportWorkbook(
       cell.border = boxed;
     });
   }
-  tasks.autoFilter = { from: 'A1', to: { row: Math.max(1, taskRows.length + 1), column: 11 } };
+  tasks.autoFilter = { from: 'A1', to: { row: Math.max(1, taskRows.length + 1), column: 12 } };
 
   // ---------------------------------------------------------------- Daily log
   const log = workbook.addWorksheet('Daily log', {

@@ -1,8 +1,10 @@
 import type { TaskDetails, TaskUpdate } from '../features/tasks/task.types';
 import type { Workbook, WorkbookList } from '../features/workbooks/workbook.types';
 
-/** A task without the optional details (assigned by, priority, project, due date). */
+/** A task without the optional details (type, assigned by, priority, project, due date). */
 export const NO_TASK_DETAILS: TaskDetails = {
+  taskType: null,
+  taskTypeOther: null,
   assignedBy: null,
   priority: null,
   project: null,

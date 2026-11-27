@@ -1,67 +1,76 @@
 :root {
-  --bg: #f6f7f9;
+  --bg: #f3f5f8;
   --surface: #ffffff;
-  --border: #e3e6eb;
-  --text: #1c2230;
-  --text-muted: #5d6677;
-  --accent: #3355dd;
-  --success-bg: #e3f6ea;
-  --success-fg: #17703a;
-  --danger-bg: #fde8e8;
-  --danger-fg: #b42323;
-  --neutral-bg: #eceff3;
-  --neutral-fg: #4a5262;
-  --accent-strong: #5b3fd6;
-  --accent-soft: #eaeefe;
-  --shadow: 0 10px 30px rgb(20 30 60 / 8%);
-  --hero-from: #2c4bd0;
-  --hero-via: #4046d6;
-  --hero-to: #6240cf;
+  --sidebar: #fbfcfe;
+  --border: #e3e7ef;
+  --text: #141821;
+  --text-muted: #5c6678;
+  --accent: #3b4fd8;
+  --accent-hover: #2f41c2;
+  --success-bg: #e7f6ee;
+  --success-fg: #12753a;
+  --danger-bg: #fdecec;
+  --danger-fg: #c4232b;
+  --neutral-bg: #eef1f6;
+  --neutral-fg: #4a5364;
+  --accent-strong: #5b45d1;
+  --accent-soft: #eef1ff;
+  --shadow: 0 16px 40px rgb(20 28 50 / 8%);
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 5%);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+  --hero-from: #2436b0;
+  --hero-via: #3344c4;
+  --hero-to: #4d3cc0;
   /* Task status colours (charts, legends) */
-  --tone-to_do: #94a0b4;
-  --tone-in_progress: #3d6df2;
-  --tone-pending: #f0a429;
-  --tone-completed: #22a45d;
+  --tone-to_do: #8b95a8;
+  --tone-in_progress: #3b5bdb;
+  --tone-pending: #d99212;
+  --tone-completed: #1b9a52;
   --tone-on_hold: #e0524f;
 
   color-scheme: light dark;
   font-family:
+    'Segoe UI Variable',
+    'Segoe UI',
     system-ui,
     -apple-system,
-    'Segoe UI',
-    Roboto,
     sans-serif;
   line-height: 1.5;
   color: var(--text);
   background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #12151b;
-    --surface: #1b2029;
-    --border: #2c3340;
-    --text: #e7eaf0;
-    --text-muted: #9aa3b4;
-    --accent: #7d97ff;
-    --success-bg: #173523;
-    --success-fg: #7fdca1;
-    --danger-bg: #3d1a1a;
-    --danger-fg: #ff9a9a;
-    --neutral-bg: #262c37;
-    --neutral-fg: #b6bdca;
-    --accent-strong: #a48bff;
-    --accent-soft: #232b45;
-    --shadow: 0 10px 30px rgb(0 0 0 / 35%);
-    /* Deep enough for white text in dark mode */
-    --hero-from: #263a94;
-    --hero-via: #33379c;
-    --hero-to: #4a2f96;
-    --tone-to_do: #7d879a;
-    --tone-in_progress: #6f93ff;
-    --tone-pending: #f3b552;
-    --tone-completed: #4cc785;
-    --tone-on_hold: #f07b78;
+    --bg: #0e1116;
+    --surface: #171c25;
+    --sidebar: #131820;
+    --border: #2a3140;
+    --text: #eef1f6;
+    --text-muted: #a3adbf;
+    --accent: #8ea2ff;
+    --accent-hover: #a9b8ff;
+    --success-bg: #143024;
+    --success-fg: #8ee0ad;
+    --danger-bg: #3a1c1e;
+    --danger-fg: #ffb4b4;
+    --neutral-bg: #242b38;
+    --neutral-fg: #c2cad8;
+    --accent-strong: #b6a4ff;
+    --accent-soft: #222a44;
+    --shadow: 0 16px 40px rgb(0 0 0 / 42%);
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 32%);
+    --hero-from: #1c2a6e;
+    --hero-via: #24307a;
+    --hero-to: #3a2a78;
+    --tone-to_do: #8b95a8;
+    --tone-in_progress: #8ea2ff;
+    --tone-pending: #f0b85a;
+    --tone-completed: #5ed39a;
+    --tone-on_hold: #f08a86;
   }
 }
 
@@ -77,10 +86,17 @@ body {
   background: var(--bg);
 }
 
+::selection {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
 h1,
-h2 {
+h2,
+h3 {
   margin: 0;
   line-height: 1.2;
+  letter-spacing: -0.025em;
 }
 
 .app {
@@ -108,8 +124,9 @@ h2 {
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px 24px;
+  border-radius: 16px;
+  padding: 20px 22px;
+  box-shadow: var(--shadow-sm);
 }
 
 .card h2 {
@@ -131,17 +148,27 @@ h2 {
 
 button {
   font: inherit;
-  padding: 6px 14px;
-  border-radius: 8px;
+  font-weight: 600;
+  min-height: 36px;
+  padding: 7px 14px;
+  border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--accent);
   cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--neutral-bg);
 }
 
 button:disabled {
   opacity: 0.6;
-  cursor: progress;
+  cursor: not-allowed;
 }
 
 button:focus-visible {
@@ -450,19 +477,39 @@ button:focus-visible {
  * Sign-in & Register pages: clean, centered layout with standard app background.
  */
 .auth-page {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   min-height: 100vh;
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 40px 16px;
-  /* A light tint of the brand blue behind the sign-in card. */
-  background: linear-gradient(135deg, #dbe4ff 0%, #e6e3ff 100%);
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, var(--accent-soft), transparent 70%), var(--bg);
   color: var(--text);
+}
+
+/* Quiet field behind the sign-in card. No motion or extra labels, so the form stays easy to read. */
+.auth-scene {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      720px 420px at 50% 0%,
+      color-mix(in srgb, var(--accent) 8%, transparent),
+      transparent 72%
+    ),
+    var(--bg);
 }
 
 /* Elevated, Centered Form Card */
 .auth-card {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-width: 440px;
   padding: 38px 36px 30px;
@@ -494,12 +541,12 @@ button:focus-visible {
   width: 38px;
   height: 38px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
+  background: linear-gradient(145deg, var(--accent) 0%, var(--accent-strong) 100%);
   color: #ffffff;
   font-weight: 800;
   font-size: 1rem;
   letter-spacing: -0.02em;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 .auth-brand-badge .brand-name {
@@ -537,42 +584,40 @@ button:focus-visible {
   padding: 10px 14px;
   border-radius: 10px;
   font-size: 0.95rem;
-  transition: all 0.18s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .auth-card .field input:focus {
   background: var(--surface);
   border-color: var(--accent);
   outline: none;
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: var(--ring);
 }
 
 .auth-card .form .button--primary {
   margin-top: 6px;
   padding-block: 12px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #4338ca 0%, #3b82f6 100%);
-  border: none;
+  background: var(--accent);
+  border: 1px solid var(--accent);
   color: #ffffff;
   font-size: 0.98rem;
   font-weight: 600;
   letter-spacing: -0.01em;
-  box-shadow: 0 4px 14px rgba(67, 56, 202, 0.25);
+  box-shadow: none;
   cursor: pointer;
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.15s ease,
-    opacity 0.15s ease;
 }
 
 .auth-card .form .button--primary:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(67, 56, 202, 0.35);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .auth-card .form .button--primary:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 2px 8px rgba(67, 56, 202, 0.2);
+  background: var(--accent-hover);
 }
 
 .auth-card .form .button--primary:disabled {
@@ -691,7 +736,7 @@ button:focus-visible {
   }
 
   .auth-card .field input:focus {
-    box-shadow: 0 0 0 3px rgba(125, 151, 255, 0.2);
+    box-shadow: var(--ring);
   }
 }
 
@@ -748,16 +793,21 @@ a {
 
 .field input {
   font: inherit;
-  padding: 9px 12px;
-  border-radius: 8px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 10px;
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--surface);
   color: var(--text);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .field input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
 }
 
 .field input[aria-invalid='true'] {
@@ -793,23 +843,33 @@ a {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
-  padding: 10px 14px;
+  padding: 8px 16px;
+}
+
+.button--primary:hover:not(:disabled),
+a.button.button--primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
 }
 
 .alert {
   margin-top: 16px;
-  padding: 10px 14px;
-  border-radius: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid transparent;
   font-size: 0.92rem;
 }
 
 .alert--error {
   background: var(--danger-bg);
+  border-color: color-mix(in srgb, var(--danger-fg) 22%, transparent);
   color: var(--danger-fg);
 }
 
 .alert--success {
   background: var(--success-bg);
+  border-color: color-mix(in srgb, var(--success-fg) 22%, transparent);
   color: var(--success-fg);
 }
 
@@ -838,6 +898,93 @@ a {
   display: flex;
   justify-content: center;
   min-height: 44px;
+}
+
+/* No empty gap while Google's button is not there (loading, or could not load). */
+.google-button:empty {
+  display: none;
+}
+
+.google-mark {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+/* Same size and shape as Google's button, so nothing jumps when it appears. */
+.google-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: min(320px, 100%);
+  height: 40px;
+  margin: 2px auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.google-placeholder .google-mark {
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .google-placeholder {
+    animation: google-placeholder-pulse 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes google-placeholder-pulse {
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* Google could not load: a calm notice with a way to try again (email sign-in still works). */
+.google-unavailable {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--neutral-bg);
+  text-align: left;
+}
+
+.google-unavailable p {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.google-unavailable strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.google-unavailable .button {
+  flex: none;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 420px) {
+  .google-unavailable {
+    flex-wrap: wrap;
+  }
+
+  .google-unavailable .button {
+    width: 100%;
+  }
 }
 
 /* ---------------------------------------------------------------- Dashboard */
@@ -888,7 +1035,7 @@ a {
   flex-direction: column;
   width: var(--sidebar-width);
   overflow-y: auto;
-  background: var(--surface);
+  background: var(--sidebar);
   border-right: 1px solid var(--border);
 }
 
@@ -926,10 +1073,11 @@ a {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 4px 14px 8px;
-  padding: 12px;
+  margin: 2px 12px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--accent-soft);
+  background: var(--surface);
 }
 
 .sidebar-user .avatar--sm {
@@ -976,11 +1124,14 @@ a {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 9px 12px;
+  padding: 8px 12px;
   border-radius: 10px;
   color: var(--text-muted);
   font-weight: 600;
   text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .sidebar-nav a:hover {
@@ -991,6 +1142,7 @@ a {
 .sidebar-nav a.active {
   background: var(--accent-soft);
   color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .icon-button.sidebar-close {
@@ -1015,8 +1167,8 @@ a {
   gap: 16px;
   min-height: 64px;
   padding: 10px 28px;
-  background: color-mix(in srgb, var(--bg) 85%, transparent);
-  backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--border);
 }
 
@@ -1040,17 +1192,23 @@ a {
   align-items: center;
   gap: 8px;
   flex: 1;
-  max-width: 420px;
-  padding: 0 12px;
+  max-width: 440px;
+  padding: 0 14px;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
+  border-radius: 999px;
+  background: var(--bg);
   color: var(--text-muted);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .topbar-search:focus-within {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface);
+  box-shadow: var(--ring);
 }
 
 .topbar-search input {
@@ -1093,20 +1251,10 @@ a {
   gap: 6px;
 }
 
-/* Every signed-in page: a soft tinted backdrop that fades into the page colour. */
+/* Every signed-in page sits on a calm canvas so cards carry the hierarchy. */
 .shell-content {
   min-height: calc(100vh - 64px);
-  background:
-    radial-gradient(
-      ellipse 60% 340px at 100% 0%,
-      color-mix(in srgb, var(--accent-strong) 12%, transparent) 0%,
-      transparent 100%
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--accent-soft) 80%, var(--bg)) 0,
-      var(--bg) 520px
-    );
+  background: var(--bg);
 }
 
 /* Pages use the full width of the content area. */
@@ -1128,12 +1276,13 @@ a {
 }
 
 .shell-content .app-header h1 {
-  font-size: 1.6rem;
-  letter-spacing: -0.015em;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
 }
 
 .shell-content .card {
-  box-shadow: 0 1px 2px rgb(16 24 40 / 6%);
+  box-shadow: var(--shadow-sm);
 }
 
 .app--wide {
@@ -1296,16 +1445,21 @@ a {
 
 .field select {
   font: inherit;
-  padding: 9px 12px;
-  border-radius: 8px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 10px;
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--surface);
   color: var(--text);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .field select:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
 }
 
 .field input[readonly] {
@@ -1316,6 +1470,11 @@ a {
 .button--subtle {
   border-color: transparent;
   background: transparent;
+}
+
+.button--subtle:hover:not(:disabled) {
+  background: var(--neutral-bg);
+  border-color: transparent;
 }
 
 .visually-hidden {
@@ -1368,9 +1527,21 @@ a {
   color: var(--danger-fg);
 }
 
+.button--danger:hover:not(:disabled) {
+  background: var(--danger-bg);
+  border-color: transparent;
+  color: var(--danger-fg);
+}
+
 .button--danger-solid {
   background: var(--danger-fg);
   border-color: var(--danger-fg);
+  color: #fff;
+}
+
+.button--danger-solid:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger-fg) 86%, #000);
+  border-color: color-mix(in srgb, var(--danger-fg) 86%, #000);
   color: #fff;
 }
 
@@ -1382,12 +1553,23 @@ a {
 a.button {
   display: inline-flex;
   align-items: center;
-  padding: 6px 14px;
+  min-height: 36px;
+  padding: 7px 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--surface);
   color: var(--accent);
+  font-weight: 600;
   text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+a.button:hover {
+  background: var(--neutral-bg);
+  color: var(--accent);
 }
 
 a.button.button--primary {
@@ -1481,7 +1663,7 @@ a.button:focus-visible {
   display: grid;
   gap: 2px;
   padding: 10px;
-  background: #1f3a93;
+  background: #2f41c2;
   color: #fff;
   font-size: 0.82rem;
   font-weight: 700;
@@ -1496,7 +1678,7 @@ a.button:focus-visible {
 
 /* Columns the user added: same header style in Excel, told apart here. */
 .sheet-preview-cell--extra {
-  background: #1e7a52;
+  background: #12753a;
 }
 
 .sheet-preview-note {
@@ -1565,18 +1747,22 @@ a.button:focus-visible {
 
 .field textarea {
   font: inherit;
-  padding: 9px 12px;
-  border-radius: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--surface);
   color: var(--text);
   resize: vertical;
   min-height: 110px;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .field textarea:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
 }
 
 .field textarea[aria-invalid='true'] {
@@ -1643,13 +1829,52 @@ a.button:focus-visible {
 }
 
 .priority--medium {
-  background: #fff1cc;
-  color: #8a5a00;
+  background: color-mix(in srgb, var(--tone-pending) 18%, var(--surface));
+  color: color-mix(in srgb, var(--tone-pending) 72%, #3a2a00);
 }
 
 .priority--high {
   background: var(--danger-bg);
   color: var(--danger-fg);
+}
+
+/* Kind of work (Feature, Bug...): outlined, so it never reads as a status or priority. */
+.task-type {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Task type with "Other": the drop-down and the user's own type side by side in one field. */
+.task-type-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-type-field > select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.task-type-field--other > select {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.task-type-field > input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.task-type-field__dash {
+  color: var(--text-muted);
 }
 
 .name-match {
@@ -1664,11 +1889,13 @@ a.button:focus-visible {
 }
 
 .task-status {
-  display: inline-block;
-  padding: 1px 9px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
   border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
   white-space: nowrap;
 }
 
@@ -1678,13 +1905,13 @@ a.button:focus-visible {
 }
 
 .task-status--in_progress {
-  background: #dce8ff;
-  color: #1f4fd8;
+  background: color-mix(in srgb, var(--tone-in_progress) 16%, var(--surface));
+  color: var(--tone-in_progress);
 }
 
 .task-status--pending {
-  background: #fff1cc;
-  color: #8a5a00;
+  background: color-mix(in srgb, var(--tone-pending) 18%, var(--surface));
+  color: color-mix(in srgb, var(--tone-pending) 72%, #3a2a00);
 }
 
 .task-status--completed {
@@ -1695,6 +1922,13 @@ a.button:focus-visible {
 .task-status--on_hold {
   background: var(--danger-bg);
   color: var(--danger-fg);
+}
+
+@media (prefers-color-scheme: dark) {
+  .task-status--pending,
+  .priority--medium {
+    color: var(--tone-pending);
+  }
 }
 
 .table-wrap {
@@ -1710,7 +1944,7 @@ a.button:focus-visible {
 
 .data-table th,
 .data-table td {
-  padding: 10px 8px;
+  padding: 12px 10px;
   border-bottom: 1px solid var(--border);
   text-align: left;
   vertical-align: top;
@@ -1718,10 +1952,10 @@ a.button:focus-visible {
 
 .data-table th {
   color: var(--text-muted);
-  font-weight: 600;
-  font-size: 0.82rem;
+  font-weight: 650;
+  font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.05em;
 }
 
 .recent-name {
@@ -1746,7 +1980,8 @@ a.button:focus-visible {
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgba(16, 20, 28, 0.55);
+  background: rgb(12 16 24 / 48%);
+  backdrop-filter: blur(4px);
 }
 
 .dialog {
@@ -1754,7 +1989,8 @@ a.button:focus-visible {
   max-width: 560px;
   max-height: calc(100vh - 32px);
   overflow-y: auto;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
 }
 
 .dialog h2 {
@@ -1894,9 +2130,11 @@ a.button.tasks-new {
 }
 
 .task-filters .field select:focus-visible,
-.field--inline select:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+.field--inline select:focus-visible,
+.task-filters .field input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
 }
 
 .search-input {
@@ -2140,7 +2378,8 @@ a.button.tasks-new {
   gap: 6px;
 }
 
-.pagination-page.is-current {
+.pagination-page.is-current,
+.pagination-page.is-current:hover {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
@@ -2653,8 +2892,9 @@ a.button.tasks-new {
 }
 
 .page-header h1 {
-  font-size: 1.6rem;
-  letter-spacing: -0.015em;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
 }
 
 .page-eyebrow {
@@ -2691,13 +2931,12 @@ a.button.tasks-new {
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 20px;
-  padding: 24px 28px;
-  border-radius: 14px;
-  background:
-    radial-gradient(circle at 92% 0%, rgb(255 255 255 / 16%) 0%, transparent 42%),
-    linear-gradient(115deg, var(--hero-from) 0%, var(--hero-via) 55%, var(--hero-to) 100%);
-  color: #fff;
-  box-shadow: 0 6px 20px color-mix(in srgb, var(--hero-from) 22%, transparent);
+  padding: 22px 26px 22px 28px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: linear-gradient(90deg, var(--accent-soft), transparent 42%), var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
 }
 
 .hero-text {
@@ -2713,7 +2952,7 @@ a.button.tasks-new {
 
 .hero p {
   margin: 0 0 16px;
-  color: rgb(255 255 255 / 86%);
+  color: var(--text-muted);
 }
 
 .hero-actions {
@@ -2742,28 +2981,30 @@ a.button.tasks-new {
 }
 
 .hero .hero-button-primary {
-  background: #fff;
-  border-color: #fff;
-  color: var(--hero-from);
-}
-
-.hero .hero-button-primary:hover {
-  background: rgb(255 255 255 / 90%);
-}
-
-.hero .hero-button {
-  background: rgb(255 255 255 / 12%);
-  border-color: rgb(255 255 255 / 40%);
+  background: var(--accent);
+  border-color: var(--accent);
   color: #fff;
 }
 
+.hero .hero-button-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
+}
+
+.hero .hero-button {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
 .hero .hero-button:hover {
-  background: rgb(255 255 255 / 22%);
+  background: var(--neutral-bg);
 }
 
 .hero-button:focus-visible,
 .hero-button-primary:focus-visible {
-  outline: 2px solid #fff;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -2782,16 +3023,16 @@ a.button.tasks-new {
 }
 
 .hero-ring-track {
-  stroke: rgb(255 255 255 / 22%);
+  stroke: color-mix(in srgb, var(--accent) 18%, var(--surface));
 }
 
 .hero-ring-value {
-  stroke: #fff;
+  stroke: var(--accent);
   stroke-linecap: round;
 }
 
 .hero-ring text {
-  fill: #fff;
+  fill: var(--text);
   font-size: 22px;
   font-weight: 700;
 }
@@ -2799,7 +3040,7 @@ a.button.tasks-new {
 .hero-ring .hero-ring-caption {
   font-size: 11px;
   font-weight: 500;
-  fill: rgb(255 255 255 / 82%);
+  fill: var(--text-muted);
 }
 
 .stat-grid {
@@ -2816,9 +3057,9 @@ a.button.tasks-new {
   min-height: 150px;
   padding: 18px 20px;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 16px;
   background: var(--surface);
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--shadow-sm);
   --tone: var(--accent);
 }
 

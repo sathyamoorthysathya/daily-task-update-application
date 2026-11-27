@@ -182,9 +182,9 @@ export function CreateWorkbookPage() {
           </div>
           {extraColumns.length > 0 && (
             <p className="field-hint sheet-preview-note">
-              Your extra columns are added after the built-in work-detail columns (Project, Assigned
-              By, Priority, Due Date, Start/End Time, Hours Worked, Remarks), from column{' '}
-              {columnLetter(FIRST_EXTRA_COLUMN)}.
+              Your extra columns are added after the built-in work-detail columns (Task Type,
+              Project, Assigned By, Priority, Due Date, Start/End Time, Hours Worked, Remarks), from
+              column {columnLetter(FIRST_EXTRA_COLUMN)}.
             </p>
           )}
         </section>

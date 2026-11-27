@@ -4,8 +4,24 @@ export type TaskStatus = 'TO_DO' | 'IN_PROGRESS' | 'PENDING' | 'COMPLETED' | 'ON
 
 export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH';
 
+/** Kind of work a task is. */
+export type TaskType =
+  | 'FEATURE'
+  | 'BUG'
+  | 'IMPROVEMENT'
+  | 'RESEARCH'
+  | 'TESTING'
+  | 'DOCUMENTATION'
+  | 'MEETING'
+  | 'SUPPORT'
+  | 'OTHER';
+
 /** Details of the task itself; the same for all of its daily entries. */
 export interface TaskDetails {
+  /** Feature, bug, research... */
+  taskType: TaskType | null;
+  /** The user's own type when taskType is OTHER (e.g. "Code review"). */
+  taskTypeOther: string | null;
   /** Who gave the task (manager, team lead, client...). */
   assignedBy: string | null;
   priority: TaskPriority | null;

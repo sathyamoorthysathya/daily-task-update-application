@@ -18,6 +18,8 @@ const valid = {
 
 /** Work details are optional: left out, they are stored as "none". */
 const noDetails = {
+  taskType: null,
+  taskTypeOther: null,
   assignedBy: null,
   priority: null,
   project: null,
@@ -100,9 +102,10 @@ describe('createTaskSchema', () => {
 });
 
 describe('work details', () => {
-  it('accepts who assigned the task, priority, project, due date, hours and remarks', () => {
+  it('accepts the task type, who assigned it, priority, project, due date, hours and remarks', () => {
     const parsed = createTaskSchema.parse({
       ...valid,
+      taskType: 'BUG',
       assignedBy: '  Priya   (Team Lead) ',
       priority: 'HIGH',
       project: 'Billing module',
@@ -112,6 +115,7 @@ describe('work details', () => {
       remarks: '  Waiting for invoices ',
     });
     expect(parsed).toMatchObject({
+      taskType: 'BUG',
       assignedBy: 'Priya (Team Lead)',
       priority: 'HIGH',
       project: 'Billing module',
@@ -122,6 +126,28 @@ describe('work details', () => {
     });
   });
 
+  it('takes the user’s own type with "Other", and requires it', () => {
+    expect(
+      createTaskSchema.parse({ ...valid, taskType: 'OTHER', taskTypeOther: '  Code   review ' }),
+    ).toMatchObject({ taskType: 'OTHER', taskTypeOther: 'Code review' });
+    for (const taskTypeOther of [undefined, null, '  ']) {
+      const result = createTaskSchema.safeParse({ ...valid, taskType: 'OTHER', taskTypeOther });
+      expect(result.error?.issues).toEqual([
+        expect.objectContaining({ path: ['taskTypeOther'], message: 'Enter the task type' }),
+      ]);
+    }
+    expect(
+      createTaskSchema.safeParse({ ...valid, taskType: 'OTHER', taskTypeOther: 'x'.repeat(51) })
+        .success,
+    ).toBe(false);
+    expect(renameTaskSchema.safeParse({ name: 'x', version: 1, taskType: 'OTHER' }).success).toBe(
+      false,
+    );
+    expect(
+      renameTaskSchema.parse({ name: 'x', version: 1, taskType: 'OTHER', taskTypeOther: 'Demo' }),
+    ).toMatchObject({ taskType: 'OTHER', taskTypeOther: 'Demo' });
+  });
+
   it('treats empty details as none', () => {
     const parsed = createTaskSchema.parse({ ...valid, assignedBy: ' ', project: '', remarks: '' });
     expect(parsed).toMatchObject({ assignedBy: null, project: null, remarks: null });
@@ -129,6 +155,7 @@ describe('work details', () => {
 
   it.each([
     ['an unknown priority', { priority: 'URGENT' }],
+    ['an unknown task type', { taskType: 'EPIC' }],
     ['an impossible due date', { dueDate: '2026-02-30' }],
     ['a malformed time', { startTime: '9:30' }],
     ['a time past midnight', { startTime: '24:00' }],
@@ -162,6 +189,11 @@ describe('work details', () => {
     expect(
       renameTaskSchema.parse({ name: 'x', version: 1, assignedBy: '', priority: null }),
     ).toEqual({ name: 'x', version: 1, assignedBy: null, priority: null });
+    expect(renameTaskSchema.parse({ name: 'x', version: 1, taskType: 'RESEARCH' })).toEqual({
+      name: 'x',
+      version: 1,
+      taskType: 'RESEARCH',
+    });
     expect(renameTaskSchema.safeParse({ name: 'x', version: 1, priority: 'TOP' }).success).toBe(
       false,
     );

@@ -254,6 +254,7 @@ describe('TaskDetailPage', () => {
       'GET /tasks/task-1': {
         body: {
           ...TASK,
+          taskType: 'RESEARCH',
           assignedBy: 'Priya (Team Lead)',
           priority: 'HIGH',
           project: 'Billing module',
@@ -279,6 +280,8 @@ describe('TaskDetailPage', () => {
     expect(section.getByText('High')).toBeInTheDocument();
     expect(section.getByText('3 h 45 min')).toBeInTheDocument();
     expect(screen.getByText('High priority')).toHaveClass('priority--high');
+    expect(section.getByText('Task type').nextElementSibling).toHaveTextContent('Research');
+    expect(screen.getByText('Research', { selector: '.task-type' })).toBeInTheDocument();
 
     const updates = within(screen.getByRole('region', { name: 'Daily entries' }));
     const first = within(updates.getAllByRole('listitem')[0]!);
@@ -314,6 +317,7 @@ describe('TaskDetailPage', () => {
     const form = within(screen.getByRole('form', { name: 'Edit task' }));
     fireEvent.change(form.getByLabelText('Assigned By'), { target: { value: 'Priya' } });
     fireEvent.change(form.getByLabelText('Priority'), { target: { value: 'Medium' } });
+    fireEvent.change(form.getByLabelText('Task Type'), { target: { value: 'Feature' } });
     fireEvent.click(form.getByRole('button', { name: 'Save changes' }));
 
     await screen.findByText(/Task #12 was updated/);
@@ -321,8 +325,44 @@ describe('TaskDetailPage', () => {
     expect(patches.map((r) => [r.path, r.body])).toEqual([
       [
         '/tasks/task-1',
-        { name: 'Prepare GST report', assignedBy: 'Priya', priority: 'MEDIUM', version: 4 },
+        {
+          name: 'Prepare GST report',
+          taskType: 'FEATURE',
+          assignedBy: 'Priya',
+          priority: 'MEDIUM',
+          version: 4,
+        },
       ],
+    ]);
+  });
+
+  it('shows and edits the user’s own type of an “Other” task', async () => {
+    const { requests } = renderDetail({
+      'GET /tasks/task-1': {
+        body: { ...TASK, taskType: 'OTHER', taskTypeOther: 'Code review' },
+      },
+      'PATCH /tasks/task-1': { body: { task: TASK, excelSync: SYNCED } },
+    });
+    const section = await details();
+    expect(section.getByText('Task type').nextElementSibling).toHaveTextContent(
+      'Other - Code review',
+    );
+    expect(screen.getByText('Other - Code review', { selector: '.task-type' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const form = within(screen.getByRole('form', { name: 'Edit task' }));
+    // One field: the drop-down shows "Other" and the box next to it the user's own type.
+    expect(form.getByLabelText('Task Type')).toHaveValue('Other');
+    expect(form.getByLabelText('Your Task Type')).toHaveValue('Code review');
+    fireEvent.change(form.getByLabelText('Your Task Type'), { target: { value: ' ' } });
+    fireEvent.click(form.getByRole('button', { name: 'Save changes' }));
+    expect(await form.findByText('Enter the task type')).toBeInTheDocument();
+
+    fireEvent.change(form.getByLabelText('Your Task Type'), { target: { value: 'Demo prep' } });
+    fireEvent.click(form.getByRole('button', { name: 'Save changes' }));
+    await screen.findByText(/Task #12 was updated/);
+    expect(requests.filter((r) => r.method === 'PATCH').map((r) => r.body)).toEqual([
+      { name: 'Prepare GST report', taskTypeOther: 'Demo prep', version: 4 },
     ]);
   });
 

@@ -50,6 +50,7 @@ export function ResetPasswordPage() {
 
   return (
     <AuthLayout
+      scene
       title="Choose a new password"
       subtitle="Enter a new secure password to restore access to your account."
       footer={<Link to="/login">Back to sign in</Link>}

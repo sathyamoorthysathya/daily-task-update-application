@@ -23,6 +23,8 @@ const GST: Task = {
   status: 'COMPLETED',
   lastEntryDate: '2026-11-06',
   entryCount: 2,
+  taskType: 'FEATURE',
+  taskTypeOther: null,
   assignedBy: 'Priya (Team Lead)',
   priority: 'HIGH',
   project: 'Billing module',

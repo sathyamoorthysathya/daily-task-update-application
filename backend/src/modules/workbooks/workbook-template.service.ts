@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import ExcelJS from 'exceljs';
-import type { TaskPriority, TaskStatus } from '../../generated/prisma/client.js';
-import { TASK_STATUSES, taskStatusLabel } from '../tasks/task-status.js';
+import type { TaskPriority, TaskStatus, TaskType } from '../../generated/prisma/client.js';
+import { TASK_STATUSES, TASK_TYPES, taskStatusLabel, taskTypeText } from '../tasks/task-status.js';
 import type { CustomColumn, CustomValues } from './custom-columns.js';
 import {
   DAILY_TASK_COLUMNS,
@@ -9,6 +9,7 @@ import {
   INTERNAL_ID_COLUMNS,
   LAST_COLUMN,
   WORK_DETAIL_COLUMNS,
+  WORK_DETAIL_FIRST_COLUMN,
 } from './workbook.constants.js';
 
 const PRIORITY_LABEL: Record<TaskPriority, string> = { LOW: 'Low', MEDIUM: 'Medium', HIGH: 'High' };
@@ -41,7 +42,10 @@ export interface DailyTaskRow {
   description: string;
   reference: string | null;
   status: TaskStatus;
-  /** Work details (columns I-P); all optional. */
+  /** Work details (columns I-Q); all optional. */
+  taskType?: TaskType | null;
+  /** The user's own type when taskType is OTHER; written as "Other - <text>". */
+  taskTypeOther?: string | null;
   project?: string | null;
   assignedBy?: string | null;
   priority?: TaskPriority | null;
@@ -74,7 +78,7 @@ interface WorksheetWithValidations {
 export class WorkbookTemplateService {
   /**
    * `customColumns` are the workbook's extra columns, written after the built-in ones (from
-   * column Q on), so the built-in columns keep their positions in every workbook.
+   * column R on), so the built-in columns keep their positions in every workbook.
    */
   async createDailyTasksWorkbook(
     title: string,
@@ -128,6 +132,7 @@ export class WorkbookTemplateService {
     sheet.getColumn('taskDescription').alignment = { vertical: 'top', wrapText: true };
     sheet.getColumn('reference').alignment = { vertical: 'top', wrapText: true };
     sheet.getColumn('status').alignment = { horizontal: 'center', vertical: 'top' };
+    sheet.getColumn('taskType').alignment = { horizontal: 'center', vertical: 'top' };
     sheet.getColumn('project').alignment = { vertical: 'top', wrapText: true };
     sheet.getColumn('assignedBy').alignment = { vertical: 'top', wrapText: true };
     sheet.getColumn('priority').alignment = { horizontal: 'center', vertical: 'top' };
@@ -173,6 +178,19 @@ export class WorkbookTemplateService {
       errorTitle: 'Invalid status',
       error: 'Choose a status from the list.',
     });
+    // Task type drop-down (column I).
+    const taskTypeColumn = sheet.getColumn(WORK_DETAIL_FIRST_COLUMN).letter;
+    (sheet as unknown as WorksheetWithValidations).dataValidations.add(
+      `${taskTypeColumn}2:${taskTypeColumn}10000`,
+      {
+        type: 'list',
+        allowBlank: true,
+        formulae: [`"${TASK_TYPES.map((type) => type.label).join(',')}"`],
+        showErrorMessage: true,
+        errorTitle: 'Invalid task type',
+        error: 'Choose a task type from the list.',
+      },
+    );
 
     sheet.autoFilter = {
       from: { row: 1, column: 1 },
@@ -198,6 +216,7 @@ export class WorkbookTemplateService {
       taskId: row.taskId,
       taskUpdateId: row.taskUpdateId,
       // Plain strings again: user text is never written as a formula.
+      taskType: taskTypeText(row.taskType ?? null, row.taskTypeOther ?? null),
       project: row.project ?? '',
       assignedBy: row.assignedBy ?? '',
       priority: row.priority ? PRIORITY_LABEL[row.priority] : '',

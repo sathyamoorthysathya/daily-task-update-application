@@ -142,7 +142,7 @@ describe('workbooks', () => {
           .getAllByRole('columnheader')
           .map((c) => c.textContent)
           .slice(6),
-      ).toEqual(['QClient', 'RTicket ID']);
+      ).toEqual(['RClient', 'STicket ID']);
 
       fireEvent.click(screen.getByRole('button', { name: 'Create Excel sheet' }));
       await screen.findByText(/Your Excel workbook “Daily Tasks” is ready/);

@@ -40,6 +40,7 @@ declare global {
 }
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
+const LOAD_TIMEOUT_MS = 15_000;
 let loading: Promise<GoogleAccountsId> | null = null;
 
 /** Loads Google's official Identity Services client once. */
@@ -52,17 +53,27 @@ export function loadGoogleIdentity(): Promise<GoogleAccountsId> {
     script.src = GIS_SRC;
     script.async = true;
     script.defer = true;
+    // A failed load is forgotten (and its script removed) so that the next call tries again.
+    const fail = (message: string) => {
+      window.clearTimeout(timeout);
+      script.remove();
+      loading = null;
+      reject(new Error(message));
+    };
+    // A blocked or very slow network may never fire load or error.
+    const timeout = window.setTimeout(
+      () => fail('Google Identity Services took too long to load'),
+      LOAD_TIMEOUT_MS,
+    );
     script.onload = () => {
       if (window.google?.accounts.id) {
+        window.clearTimeout(timeout);
         resolve(window.google.accounts.id);
       } else {
-        reject(new Error('Google Identity Services did not initialise'));
+        fail('Google Identity Services did not initialise');
       }
     };
-    script.onerror = () => {
-      loading = null;
-      reject(new Error('Failed to load Google Identity Services'));
-    };
+    script.onerror = () => fail('Failed to load Google Identity Services');
     document.head.appendChild(script);
   });
   return loading;

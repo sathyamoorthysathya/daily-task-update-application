@@ -60,6 +60,7 @@ export function AdminLoginPage() {
 
   return (
     <AuthLayout
+      scene
       title={needsCode ? 'Two-step verification' : 'Admin sign-in'}
       subtitle={
         needsCode
